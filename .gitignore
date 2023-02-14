@@ -1,0 +1,12 @@
+Resources/Backup
+Resources/Admin/*.xlsx
+Resources/Code From John
+.vs
+bin
+obj
+*.csproj.user
+*.suo
+packages
+*.log
+*.db
+
