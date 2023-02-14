@@ -38,15 +38,19 @@
             this.txtKeyDown = new System.Windows.Forms.TextBox();
             this.splitter1 = new System.Windows.Forms.Splitter();
             this.toolTip1 = new System.Windows.Forms.ToolTip(this.components);
+            this.pnlHelp = new System.Windows.Forms.Panel();
+            this.txtHelp = new System.Windows.Forms.TextBox();
             this.pnlDiagnostics.SuspendLayout();
+            this.pnlHelp.SuspendLayout();
             this.SuspendLayout();
             // 
             // richTextBox1
             // 
             this.richTextBox1.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.richTextBox1.Font = new System.Drawing.Font("Lucida Console", 8.25F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
             this.richTextBox1.Location = new System.Drawing.Point(0, 0);
             this.richTextBox1.Name = "richTextBox1";
-            this.richTextBox1.Size = new System.Drawing.Size(588, 363);
+            this.richTextBox1.Size = new System.Drawing.Size(478, 363);
             this.richTextBox1.TabIndex = 0;
             this.richTextBox1.Text = "";
             this.richTextBox1.WordWrap = false;
@@ -89,6 +93,7 @@
             // txtAliases
             // 
             this.txtAliases.Dock = System.Windows.Forms.DockStyle.Top;
+            this.txtAliases.Font = new System.Drawing.Font("Lucida Console", 8.25F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
             this.txtAliases.Location = new System.Drawing.Point(0, 50);
             this.txtAliases.Multiline = true;
             this.txtAliases.Name = "txtAliases";
@@ -99,6 +104,7 @@
             // txtSelection
             // 
             this.txtSelection.Dock = System.Windows.Forms.DockStyle.Top;
+            this.txtSelection.Font = new System.Drawing.Font("Lucida Console", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
             this.txtSelection.Location = new System.Drawing.Point(0, 0);
             this.txtSelection.Name = "txtSelection";
             this.txtSelection.Size = new System.Drawing.Size(305, 50);
@@ -124,17 +130,43 @@
             this.splitter1.TabIndex = 5;
             this.splitter1.TabStop = false;
             // 
+            // pnlHelp
+            // 
+            this.pnlHelp.Controls.Add(this.txtHelp);
+            this.pnlHelp.Dock = System.Windows.Forms.DockStyle.Right;
+            this.pnlHelp.Location = new System.Drawing.Point(478, 0);
+            this.pnlHelp.MaximumSize = new System.Drawing.Size(110, 0);
+            this.pnlHelp.MinimumSize = new System.Drawing.Size(110, 0);
+            this.pnlHelp.Name = "pnlHelp";
+            this.pnlHelp.Padding = new System.Windows.Forms.Padding(3);
+            this.pnlHelp.Size = new System.Drawing.Size(110, 363);
+            this.pnlHelp.TabIndex = 6;
+            // 
+            // txtHelp
+            // 
+            this.txtHelp.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.txtHelp.Font = new System.Drawing.Font("Lucida Console", 8.25F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point);
+            this.txtHelp.Location = new System.Drawing.Point(3, 3);
+            this.txtHelp.Multiline = true;
+            this.txtHelp.Name = "txtHelp";
+            this.txtHelp.Size = new System.Drawing.Size(104, 357);
+            this.txtHelp.TabIndex = 3;
+            this.txtHelp.SizeChanged += new System.EventHandler(this.txt_SizeChanged);
+            // 
             // swCLIWindow
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 15F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.Controls.Add(this.richTextBox1);
+            this.Controls.Add(this.pnlHelp);
             this.Controls.Add(this.splitter1);
             this.Controls.Add(this.pnlDiagnostics);
             this.Name = "swCLIWindow";
             this.Size = new System.Drawing.Size(896, 363);
             this.pnlDiagnostics.ResumeLayout(false);
             this.pnlDiagnostics.PerformLayout();
+            this.pnlHelp.ResumeLayout(false);
+            this.pnlHelp.PerformLayout();
             this.ResumeLayout(false);
 
         }
@@ -150,5 +182,7 @@
         private Splitter splitter1;
         private ToolTip toolTip1;
         private Splitter splitter2;
+        private Panel pnlHelp;
+        private TextBox txtHelp;
     }
 }
