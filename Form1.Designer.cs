@@ -28,12 +28,31 @@
         /// </summary>
         private void InitializeComponent()
         {
-            this.components = new System.ComponentModel.Container();
+            this.swcliWindow1 = new CLI_Sample.swCLIWindow();
+            this.SuspendLayout();
+            // 
+            // swcliWindow1
+            // 
+            this.swcliWindow1.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.swcliWindow1.Location = new System.Drawing.Point(0, 0);
+            this.swcliWindow1.Name = "swcliWindow1";
+            this.swcliWindow1.Size = new System.Drawing.Size(800, 450);
+            this.swcliWindow1.TabIndex = 0;
+            // 
+            // Form1
+            // 
+            this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 15F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(800, 450);
+            this.Controls.Add(this.swcliWindow1);
+            this.Name = "Form1";
             this.Text = "Form1";
+            this.ResumeLayout(false);
+
         }
 
         #endregion
+
+        private swCLIWindow swcliWindow1;
     }
 }
