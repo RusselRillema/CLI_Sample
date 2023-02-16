@@ -15,6 +15,7 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Windows.Forms.VisualStyles;
 using System.Xml;
+using static System.Windows.Forms.DataFormats;
 using static System.Windows.Forms.Design.AxImporter;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement.TaskbarClock;
@@ -562,7 +563,7 @@ namespace CLI_Sample
 
                 foreach (var column in columns)
                 {
-                    string cellValue = column.PropertyInfo.GetValue(item)?.ToString() ?? "";
+                    string cellValue = GetCellValue(item, column);
                     if (cellValue.Length > column.ColumnWidth)
                     {
                         cellValue = cellValue.Remove(column.ColumnWidth - 3) + "...";
@@ -574,6 +575,22 @@ namespace CLI_Sample
             }
 
             return table;
+        }
+
+        private static string GetCellValue<T>(T? item, TableColumnHelper column)
+        {
+            string value = column.PropertyInfo.GetValue(item)?.ToString() ?? "";
+            string frontValue = "";
+            string endValue = "";
+            if (column.Format.LeadingCharacters != -1)
+                frontValue = value.Remove(column.Format.TrailingCharacters);
+            if (column.Format.TrailingCharacters != -1)
+                endValue = value.Remove(0, value.Length - column.Format.TrailingCharacters);
+
+            if (frontValue != "" || endValue != "")
+                return $"{frontValue}...{endValue}";
+            else
+                return value;
         }
 
         private static List<TableColumnHelper> GetColumns<T>(IEnumerable<T> collection)
@@ -602,6 +619,7 @@ namespace CLI_Sample
                     ColumnHeader = header,
                     ColumnWidth = colWidth,
                     PropertyInfo = prop.PropertyInfo,
+                    Format = prop.CliTableFormat,
                 };
                 columns.Add(col);
             }
@@ -623,9 +641,9 @@ namespace CLI_Sample
             List<PropertyInfoCliAttributeMapper> res = new();
             foreach (var prop in type.GetProperties())
             {
-                var att = prop.GetCustomAttribute<CliTableFormat>();
+                var att = prop.GetCustomAttribute<CliTablePropertyFormat>();
                 if (att == null)
-                    att = new CliTableFormat();
+                    att = new CliTablePropertyFormat();
 
                 res.Add(new() { PropertyInfo = prop, CliTableFormat = att });
             }
@@ -637,16 +655,17 @@ namespace CLI_Sample
             public string ColumnHeader { get; set; }
             public int ColumnWidth { get; init; }
             public PropertyInfo PropertyInfo { get; set; }
+            public CliTablePropertyFormat Format { get; set; }
         }
 
         public class PropertyInfoCliAttributeMapper
         {
             public PropertyInfo PropertyInfo { get; set; }
-            public CliTableFormat CliTableFormat { get; set; }
+            public CliTablePropertyFormat CliTableFormat { get; set; }
         }
     }
 
-    public class CliTableFormat: Attribute
+    public class CliTablePropertyFormat: Attribute
     {
         public bool HideFromOutput { get; set; }
         public string? Header { get; set; } = null;
@@ -657,9 +676,9 @@ namespace CLI_Sample
 
     public class Alias
     {
-        [CliTableFormat(Header="Alias")]
+        [CliTablePropertyFormat(Header="Alias")]
         public string Key { get; set; }
-        [CliTableFormat(Header = "Replacement value")]
+        [CliTablePropertyFormat(Header = "Replacement value")]
         public string Value { get; set; }
 
         public override bool Equals(object? obj)
@@ -719,7 +738,8 @@ namespace CLI_Sample
 
         aliases,
         alias,
-        unalias
+        unalias,
+        info
     }
 
     public abstract class Command : IComparable<Command>
@@ -732,9 +752,9 @@ namespace CLI_Sample
             _outputWindow = outputWindow;
             CommandAliases.Add(CMDName.ToString());
         }
-        [CliTableFormat(Header = "Command")]
+        [CliTablePropertyFormat(Header = "Command")]
         public abstract CommandName CMDName { get; }
-        [CliTableFormat(HideFromOutput = true)]
+        [CliTablePropertyFormat(HideFromOutput = true)]
         public virtual string UseStatement { get; }
         public void RunCommand(string[] cmdItems)
         {
@@ -748,20 +768,20 @@ namespace CLI_Sample
             throw new Exception($"Incorrect syntax. {usageMessage}");
         }
         public abstract string Desciption { get; }
-        [CliTableFormat(Header = "Syntax", MaxWidth = -1)]
+        [CliTablePropertyFormat(Header = "Syntax", MaxWidth = -1)]
         public abstract string CommandSyntaxMessage { get; }
-        [CliTableFormat(HideFromOutput = true)]
+        [CliTablePropertyFormat(HideFromOutput = true)]
         public abstract string CommandSyntaxDetails { get; }
-        [CliTableFormat(HideFromOutput = true)]
+        [CliTablePropertyFormat(HideFromOutput = true)]
         public virtual List<string> CommandAliases { get; } = new();
 
-        [CliTableFormat(HideFromOutput = true)]
+        [CliTablePropertyFormat(HideFromOutput = true)]
         internal virtual List<string> AutoComplete(string[] itemsInCmd)
         {
             return new();
         }
 
-        [CliTableFormat(HideFromOutput = true)]
+        [CliTablePropertyFormat(HideFromOutput = true)]
         protected abstract Action<string[]> CommandAction { get; }
 
         public int CompareTo(Command? other)
@@ -1399,7 +1419,7 @@ namespace CLI_Sample
 
     public class UnaliasCommand : Command
     {
-        public override CommandName CMDName { get; } = CommandName.unalias;
+        public override CommandName CMDName => CommandName.unalias;
 
         public UnaliasCommand(IOutputWindow outputWindow) : base(outputWindow) { }
 
@@ -1420,6 +1440,30 @@ namespace CLI_Sample
                 throw new Exception($"Alias {alias} does not exist exists");
 
             _outputWindow.RegisteredAliases.RemoveWhere(x=>x.Key == alias);
+        }
+    }
+
+    public class InfoCommand : Command
+    {
+        public override CommandName CMDName => CommandName.info;
+
+        public InfoCommand(IOutputWindow outputWindow) : base(outputWindow) { }
+
+        public override string Desciption => "Prints some basic info about ";
+        public override string CommandSyntaxMessage => $"{CMDName} [ instruments ]";
+        public override string CommandSyntaxDetails => $"{"instruments",15} :: Optional. Pipe delimited list of instruments to show values for. If not present the selected instrument will be used";
+
+        protected override Action<string[]> CommandAction => Info;
+        private void Info(string[] cmd)
+        {
+            if (cmd.Length == 1)
+            {
+                if (_outputWindow.SelectedInstrument == null)
+                    RaiseSyntaxException(CommandSyntaxMessage);
+
+                var info = SampleData.GetInfo(SampleData.FindInstrument(_outputWindow.SelectedAccount, _outputWindow.SelectedInstrument.Symbol));
+                _outputWindow.AppendText(TableHelper.CreateTableOutput(new List<InstrumentInfo>() { info }));
+            }
         }
     }
 }

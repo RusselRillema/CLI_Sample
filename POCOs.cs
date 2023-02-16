@@ -16,9 +16,9 @@ namespace CLI_Sample
     }
     public class Account
     {
-        [CliTableFormat(Header = "ID", LeadingCharacters = 3, TrailingCharacters = 3)]
+        [CliTablePropertyFormat(Header = "ID", LeadingCharacters = 3, TrailingCharacters = 3, MaxWidth = 9)]
         public Guid Id { get; set; } = Guid.NewGuid();
-        [CliTableFormat(Header = "Acc. Name")]
+        [CliTablePropertyFormat(Header = "Acc. Name")]
         public string Name { get; set; }
         public Exchange Exchange { get; set; }
         public override string ToString()
@@ -29,10 +29,10 @@ namespace CLI_Sample
     public class Instrument
     {
         public Exchange Exchange { get; set; }
-        [CliTableFormat(Header = "Inst. Name")]
+        [CliTablePropertyFormat(Header = "Inst. Name")]
         public string Name { get; set; }
         public string Symbol { get; set; }
-        [CliTableFormat(Header = "Inst. Kind")]
+        [CliTablePropertyFormat(Header = "Inst. Kind")]
         public InstrumentKind InstrumentKind { get; set; }
         public override string ToString()
         {
@@ -40,19 +40,29 @@ namespace CLI_Sample
         }
     }
 
+    public class InstrumentInfo
+    {
+        public Instrument Instrument { get; set; }
+        public decimal BestBid { get; set; }
+        public decimal BestOffer { get; set; }
+        public decimal Spread => BestOffer - BestBid;
+        public decimal LastPrice { get; set; }
+    }
+
+
     public class Order
     {
-        [CliTableFormat(Header = "ID", LeadingCharacters = 3, TrailingCharacters = 3)]
+        [CliTablePropertyFormat(Header = "ID", LeadingCharacters = 3, TrailingCharacters = 3, MaxWidth = 9)]
         public Guid ID { get; set; } = Guid.NewGuid();
         public Account Account { get; set; }
-        [CliTableFormat(Header = "Symbol")]
+        [CliTablePropertyFormat(Header = "Symbol")]
         public Instrument Instrument { get; set; }
-        [CliTableFormat(Header = "Side")]
+        [CliTablePropertyFormat(Header = "Side")]
         public Side Side { get; set; }
         public decimal Qty { get; set; }
         public decimal Price { get; set; }
         public OrderState State { get; set; }
-        [CliTableFormat(Header = "Open")]
+        [CliTablePropertyFormat(Header = "Open")]
         public bool IsOpen 
         { 
             get
@@ -256,6 +266,17 @@ namespace CLI_Sample
         }
 
         public static List<Order> Orders { get; } = new();
+
+        public static InstrumentInfo GetInfo(Instrument instrument)
+        {
+            var info = new InstrumentInfo()
+            {
+                Instrument = instrument,
+                BestBid = decimal.Parse((Random.Shared.Next(20000) + Random.Shared.NextDouble()).ToString()),
+            };
+            info.BestOffer = decimal.Parse((Random.Shared.Next(int.Parse(Math.Round(info.BestBid, 0).ToString()), 21000) + Random.Shared.NextDouble()).ToString());
+            return info;
+        }
     }
     public enum InstrumentKind
     {
