@@ -507,34 +507,59 @@ namespace CLI_Sample
             txtSelectionText += $"{"Instrument:",-12}{SelectedInstrument?.Symbol ?? "none",-30}";
             txtSelection.Text = txtSelectionText;
 
-            txtAliases.Text = FormatHelper.FormatTableOutput(RegisteredAliases);// GetAliasesString().Trim();
+            txtAliases.Text = TableHelper.CreateTableOutput(RegisteredAliases);// GetAliasesString().Trim();
         }
     }
 
-    public static class FormatHelper
+    public static class TableHelper
     {
+        public static Dictionary<Type, Dictionary<int, object>> OutputsByType = new();
+
         private const int ColumnSpacer = 2;
         private static Dictionary<Type, List<PropertyInfoCliAttributeMapper>> _knownTypes = new();
-        public static string FormatTableOutput<T>(IEnumerable<T> collection)
+        public static string CreateTableOutput<T>(IEnumerable<T> collection, bool addRowId = false)
         {
+            if (addRowId)
+            {
+                if (!OutputsByType.ContainsKey(typeof(T)))
+                    OutputsByType[typeof(T)] = new Dictionary<int, object>();
+
+                OutputsByType[typeof(T)].Clear();
+            }
+
             string table = string.Empty;
             List<TableColumnHelper> columns = GetColumns(collection);
+
             //Headers
+            if (addRowId)
+                table += string.Format("{0," + (7 * -1).ToString() + "}", "RowId");
             foreach (var column in columns)
             {
                 var l = string.Format("{0," + ((column.ColumnWidth + ColumnSpacer) * -1).ToString() + "}", column.ColumnHeader);
                 table += l;
             }
             table += Environment.NewLine;
+
             //Header break
+            if (addRowId)
+                table += new string('-', 5) + new string(' ', 2);
             foreach (var column in columns)
             {
+
                 table += new string('-', column.ColumnWidth) + new string(' ', ColumnSpacer);
             }
             table += Environment.NewLine;
+
             //Data
+            int rowId = 1;
             foreach (var item in collection)
             {
+                if (addRowId)
+                {
+                    OutputsByType[typeof(T)].Add(rowId, item);
+                    table += string.Format("{0," + (7 * -1).ToString() + "}", rowId.ToString());
+                }
+
                 foreach (var column in columns)
                 {
                     string cellValue = column.PropertyInfo.GetValue(item)?.ToString() ?? "";
@@ -545,6 +570,7 @@ namespace CLI_Sample
                     table += string.Format("{0," + ((column.ColumnWidth + ColumnSpacer) * -1).ToString() + "}", cellValue);
                 }
                 table += Environment.NewLine;
+                ++rowId;
             }
 
             return table;
@@ -782,7 +808,7 @@ namespace CLI_Sample
                 _outputWindow.AppendText(output);// outputWindow.GetHelpString(true));
             }
             else
-                _outputWindow.AppendText(FormatHelper.FormatTableOutput(_outputWindow.RegisteredCommands));
+                _outputWindow.AppendText(TableHelper.CreateTableOutput(_outputWindow.RegisteredCommands));
                 //_outputWindow.AppendText(_outputWindow.GetHelpString(true));
         }
     }
@@ -834,8 +860,16 @@ namespace CLI_Sample
         {
             if (cmd.Length != 2) 
                 RaiseSyntaxException(CommandSyntaxMessage);
-            
-            _outputWindow.SelectedAccount = SampleData.FindAccount(cmd[1]);
+
+            string accSearch = cmd[1];
+            if (TableHelper.OutputsByType.ContainsKey(typeof(Account))
+                    && int.TryParse(cmd[1], out int rowId)
+                    && TableHelper.OutputsByType[typeof(Account)][rowId] is Account account)
+            {
+                accSearch = account.Id.ToString();
+            }
+
+            _outputWindow.SelectedAccount = SampleData.FindAccount(accSearch);
             _outputWindow.SelectedInstrument = null;
         }
     }
@@ -876,7 +910,18 @@ namespace CLI_Sample
             int instrumentIndex = 1;
 
             if (cmd.Length == 2)
-                accToSelect = _outputWindow.SelectedAccount; 
+            {
+                accToSelect = _outputWindow.SelectedAccount;
+
+                if (TableHelper.OutputsByType.ContainsKey(typeof(Instrument)) 
+                    && int.TryParse(cmd[1], out int rowId)
+                    && TableHelper.OutputsByType[typeof(Instrument)][rowId] is Instrument ins
+                    && accToSelect?.Exchange == ins.Exchange)
+                {
+                    _outputWindow.SelectedInstrument = SampleData.FindInstrument(accToSelect, ins.Symbol);
+                    return;
+                }
+            }
             else if (cmd.Length == 3)
             {
                 accToSelect = SampleData.FindAccount(cmd[1]);
@@ -917,7 +962,7 @@ namespace CLI_Sample
 
             bool showTip = true;
 
-            _outputWindow.AppendText(FormatHelper.FormatTableOutput(SampleData.Accounts));
+            _outputWindow.AppendText(TableHelper.CreateTableOutput(SampleData.Accounts, true));
 
             if (showTip)
                 _outputWindow.AppendText("Tip: type 'use' followed by either the RowID or the account name to select an account");
@@ -967,9 +1012,6 @@ namespace CLI_Sample
             else
                 RaiseSyntaxException(CommandSyntaxMessage);
 
-            /*_outputWindow.AppendText($"{Environment.NewLine}{"SYMBOL",-20}{"NAME",-25}");
-            _outputWindow.AppendText($"-----------------   -----------------------");*/
-
             FilterType filterType = FilterType.Equals;
 
             if (filter.StartsWith('*') && filter.EndsWith("*"))
@@ -983,13 +1025,7 @@ namespace CLI_Sample
 
             filter = filter.Replace("*", "");
 
-            /*foreach (var item in SampleData.FindInstruments(filterType, _outputWindow.SelectedAccount, filter))
-            {
-                _outputWindow.AppendText($"{item.Symbol,-20}{item.Name,-25}");
-            }*/
-
-
-            _outputWindow.AppendText(FormatHelper.FormatTableOutput(SampleData.FindInstruments(filterType, _outputWindow.SelectedAccount, filter)));
+            _outputWindow.AppendText(TableHelper.CreateTableOutput(SampleData.FindInstruments(filterType, _outputWindow.SelectedAccount, filter), true));
 
             if (showTip)
                 _outputWindow.AppendText("Tip: type 'use' followed by either the RowID or the Symbol to select an instrument");
@@ -1034,9 +1070,89 @@ namespace CLI_Sample
                 return new();
         }
 
-        protected override Action<string[]> CommandAction => BuySell;
+        protected void ListOrders(string[] cmd)
+        {
+            OrdersFilter filterType = OrdersFilter.Open;
+            string filter = "";
+            if (cmd.Length == 1)
+                filterType = OrdersFilter.Open;
+            else if (cmd.Length == 2)
+            {
+                filter = cmd[1];
+                if (cmd[1] == "open")
+                    filterType = OrdersFilter.Open;
+                else if (cmd[1] == "all")
+                    filterType = OrdersFilter.All;
+                else if (cmd[1] == "completed")
+                    filterType = OrdersFilter.Completed;
+                else if (Enum.TryParse(cmd[1], out OrderState x))
+                    filterType = OrdersFilter.State;
+                else if (SampleData.Accounts.Any(x => x.Name == cmd[1]))
+                    filterType = OrdersFilter.Account;
+                else if (SampleData.Instruments.Any(x => x.Symbol == cmd[1]))
+                    filterType = OrdersFilter.Instrument;
+                else
+                    RaiseSyntaxException(CommandSyntaxMessage);
+            }
+            else
+                RaiseSyntaxException(CommandSyntaxMessage);
 
-        private void BuySell(string[] cmd)
+            var orders = SampleData.FindOrders(filterType, filter);
+
+            _outputWindow.AppendText(TableHelper.CreateTableOutput(orders, true));
+        }
+
+        protected void CancelOrder(string[] cmd)
+        {
+            Guid orderIdToCancel = Guid.Empty;
+            if (cmd.Length != 2)
+                throw new Exception(CommandSyntaxMessage);
+
+            if (cmd[1] == "all")
+            {
+                int affectedOrders = 0;
+                foreach (var item in SampleData.Orders)
+                {
+                    if (item.IsOpen)
+                    {
+                        item.State = OrderState.Canceled;
+                        ++affectedOrders;
+                    }
+                }
+                if (affectedOrders > 0)
+                    _outputWindow.AppendText($"{affectedOrders} orders cancelled");
+                else
+                    _outputWindow.AppendText($"There are no open orders to cancel");
+                SampleData.Orders.ForEach(x => x.State = OrderState.Canceled);
+                return;
+            }
+            else if (TableHelper.OutputsByType.ContainsKey(typeof(Order))
+                    && int.TryParse(cmd[1], out int rowId)
+                    && TableHelper.OutputsByType[typeof(Order)][rowId] is Order order)
+            {
+                orderIdToCancel = order.ID;
+            }
+            
+            if (orderIdToCancel == Guid.Empty && !Guid.TryParse(cmd[1], out orderIdToCancel))
+                throw new Exception($"Cannot convert {cmd[1]} to order ID");
+
+
+            var orders = SampleData.Orders.Where(x => x.ID == orderIdToCancel);
+            if (orders.Count() == 0)
+                throw new Exception($"No order with ID {orderIdToCancel}");
+            else if (orders.Count() > 1)
+                throw new Exception($"More than 1 matching order with ID {orderIdToCancel}");
+
+            if (orders.Single().IsOpen)
+            {
+                orders.Single().State = OrderState.Canceled;
+                _outputWindow.AppendText($"Order cancelled");
+            }
+            else
+                _outputWindow.AppendText($"Cannot cancel an order that is not open.");
+        }
+
+        protected void BuySell(string[] cmd)
         {
             Account? account = null;
             Instrument? instrument = null;
@@ -1186,15 +1302,17 @@ namespace CLI_Sample
     {
         public override CommandName CMDName { get; } = CommandName.buy;
         public BuyCommand(IOutputWindow outputWindow) : base(outputWindow) { }
+        protected override Action<string[]> CommandAction => BuySell;
     }
 
     public class SellCommand : OrderCommand
     {
         public override CommandName CMDName { get; } = CommandName.sell;
         public SellCommand(IOutputWindow outputWindow) : base(outputWindow) { }
+        protected override Action<string[]> CommandAction => BuySell;
     }
 
-    public class OrdersCommand : Command
+    public class OrdersCommand : OrderCommand
     {
         public override CommandName CMDName { get; } = CommandName.orders;
 
@@ -1205,41 +1323,9 @@ namespace CLI_Sample
         public override string CommandSyntaxDetails => $"{"filter",15} :: Optional. [ open (default) | all | state | accountId | instrumentSymbol ] ";
 
         protected override Action<string[]> CommandAction => ListOrders;
-
-        private void ListOrders(string[] cmd)
-        {
-            OrdersFilter filterType = OrdersFilter.Open;
-            string filter = "";
-            if (cmd.Length == 1)
-                filterType = OrdersFilter.Open;
-            else if (cmd.Length == 2)
-            {
-                filter = cmd[1];
-                if (cmd[1] == "open")
-                    filterType = OrdersFilter.Open;
-                else if (cmd[1] == "all")
-                    filterType = OrdersFilter.All;
-                else if (cmd[1] == "completed")
-                    filterType = OrdersFilter.Completed;
-                else if (Enum.TryParse(cmd[1], out OrderState x))
-                    filterType = OrdersFilter.State;
-                else if (SampleData.Accounts.Any(x => x.Name == cmd[1]))
-                    filterType = OrdersFilter.Account;
-                else if (SampleData.Instruments.Any(x => x.Symbol == cmd[1]))
-                    filterType = OrdersFilter.Instrument;
-                else
-                    RaiseSyntaxException(CommandSyntaxMessage);
-            }
-            else
-                RaiseSyntaxException(CommandSyntaxMessage);
-
-            var orders = SampleData.FindOrders(filterType, filter);
-
-            _outputWindow.AppendText(FormatHelper.FormatTableOutput(orders));
-        }
     }
 
-    public class CancelCommand : Command
+    public class CancelCommand : OrderCommand
     {
         public override CommandName CMDName { get; } = CommandName.cancel;
 
@@ -1251,47 +1337,6 @@ namespace CLI_Sample
 
         protected override Action<string[]> CommandAction => CancelOrder;
 
-        private void CancelOrder(string[] cmd)
-        {
-            if (cmd.Length != 2)
-                throw new Exception(CommandSyntaxMessage);
-
-            if (cmd[1] == "all")
-            {
-                int affectedOrders = 0;
-                foreach (var item in SampleData.Orders)
-                {
-                    if (item.IsOpen)
-                    {
-                        item.State = OrderState.Canceled;
-                        ++affectedOrders;
-                    }
-                }
-                if (affectedOrders > 0)
-                    _outputWindow.AppendText($"{affectedOrders} orders cancelled");
-                else
-                    _outputWindow.AppendText($"There are no open orders to cancel");
-                SampleData.Orders.ForEach(x => x.State = OrderState.Canceled);
-                return;
-            }
-
-            if (!Guid.TryParse(cmd[1], out Guid orderId))
-                throw new Exception($"Cannot convert {cmd[1]} to order ID");
-
-            var order = SampleData.Orders.Where(x => x.ID == orderId);
-            if (order.Count() == 0)
-                throw new Exception($"No order with ID {orderId}");
-            if (order.Count() > 1)
-                throw new Exception($"More than 1 matching order with ID {orderId}");
-
-            if (order.Single().IsOpen)
-            {
-                order.Single().State = OrderState.Canceled;
-                _outputWindow.AppendText($"Order cancelled");
-            }
-            else
-                _outputWindow.AppendText($"Cannot cancel an order that is not open.");
-        }
     }
 
     public class AliasesCommand : Command
@@ -1308,7 +1353,7 @@ namespace CLI_Sample
 
         private void GetAliasesString(string[] cmd)
         {
-            _outputWindow.AppendText(FormatHelper.FormatTableOutput(_outputWindow.RegisteredAliases));
+            _outputWindow.AppendText(TableHelper.CreateTableOutput(_outputWindow.RegisteredAliases));
         }
     }
 
