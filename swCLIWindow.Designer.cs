@@ -33,6 +33,7 @@
             this.txtTextChanged = new System.Windows.Forms.TextBox();
             this.pnlDiagnostics = new System.Windows.Forms.Panel();
             this.grbSettings = new System.Windows.Forms.GroupBox();
+            this.nudPageSize = new System.Windows.Forms.NumericUpDown();
             this.chkPageOutput = new System.Windows.Forms.CheckBox();
             this.splitter2 = new System.Windows.Forms.Splitter();
             this.txtAliases = new System.Windows.Forms.TextBox();
@@ -44,6 +45,7 @@
             this.txtHelp = new System.Windows.Forms.TextBox();
             this.pnlDiagnostics.SuspendLayout();
             this.grbSettings.SuspendLayout();
+            ((System.ComponentModel.ISupportInitialize)(this.nudPageSize)).BeginInit();
             this.pnlHelp.SuspendLayout();
             this.SuspendLayout();
             // 
@@ -93,6 +95,7 @@
             // 
             // grbSettings
             // 
+            this.grbSettings.Controls.Add(this.nudPageSize);
             this.grbSettings.Controls.Add(this.chkPageOutput);
             this.grbSettings.Dock = System.Windows.Forms.DockStyle.Top;
             this.grbSettings.Location = new System.Drawing.Point(0, 264);
@@ -104,6 +107,19 @@
             this.grbSettings.TabStop = false;
             this.grbSettings.Text = "Settings";
             // 
+            // nudPageSize
+            // 
+            this.nudPageSize.Location = new System.Drawing.Point(126, 28);
+            this.nudPageSize.Name = "nudPageSize";
+            this.nudPageSize.Size = new System.Drawing.Size(97, 27);
+            this.nudPageSize.TabIndex = 7;
+            this.nudPageSize.Value = new decimal(new int[] {
+            10,
+            0,
+            0,
+            0});
+            this.nudPageSize.ValueChanged += new System.EventHandler(this.nudPageSize_ValueChanged);
+            // 
             // chkPageOutput
             // 
             this.chkPageOutput.AutoSize = true;
@@ -114,6 +130,7 @@
             this.chkPageOutput.TabIndex = 6;
             this.chkPageOutput.Text = "Page Output";
             this.chkPageOutput.UseVisualStyleBackColor = true;
+            this.chkPageOutput.CheckedChanged += new System.EventHandler(this.chkPageOutput_CheckedChanged);
             // 
             // splitter2
             // 
@@ -217,6 +234,7 @@
             this.pnlDiagnostics.PerformLayout();
             this.grbSettings.ResumeLayout(false);
             this.grbSettings.PerformLayout();
+            ((System.ComponentModel.ISupportInitialize)(this.nudPageSize)).EndInit();
             this.pnlHelp.ResumeLayout(false);
             this.pnlHelp.PerformLayout();
             this.ResumeLayout(false);
@@ -238,5 +256,6 @@
         private TextBox txtHelp;
         private GroupBox grbSettings;
         private CheckBox chkPageOutput;
+        private NumericUpDown nudPageSize;
     }
 }

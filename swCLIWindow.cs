@@ -1,33 +1,18 @@
-﻿using System;
-using System.Collections;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Data;
-using System.Data.Common;
-using System.Diagnostics;
-using System.Drawing;
-using System.Globalization;
-using System.Linq;
+﻿using System.Data;
 using System.Reflection;
-using System.Runtime.ConstrainedExecution;
-using System.Text;
-using System.Threading.Tasks;
-using System.Windows.Forms;
-using System.Windows.Forms.VisualStyles;
-using System.Xml;
-using static System.Windows.Forms.DataFormats;
-using static System.Windows.Forms.Design.AxImporter;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement.TaskbarClock;
+using System.Runtime.InteropServices;
 
 namespace CLI_Sample
 {
     public partial class swCLIWindow : UserControl, IOutputWindow
     {
+        public RichTextBox RTB => richTextBox1;
         public HashSet<Alias> RegisteredAliases { get; } = new();
         public IReadOnlyList<Command> RegisteredCommands { get => _commands.Values.Distinct().ToList(); }
         public Account? SelectedAccount { get; set; } = null;
         public Instrument? SelectedInstrument { get; set; } = null;
+        public bool CommandWaitingForUserInput { get; set; } = false;
+        public bool CancelTaskTriggered { get; set; } = false;
 
         private Dictionary<string, Command> _commands = new();
 
@@ -127,9 +112,24 @@ namespace CLI_Sample
 
         }
 
-        private void richTextBox1_KeyDown(object sender, KeyEventArgs e)
+        private async void richTextBox1_KeyDown(object sender, KeyEventArgs e)
         {
-            if (e.KeyValue == 38) //up arrow
+            if (CommandWaitingForUserInput)
+            {
+                e.SuppressKeyPress = true;
+                e.Handled = true;
+                if (e.KeyValue == 32) //space
+                    CommandWaitingForUserInput = false;
+
+                if (ModifierKeys == Keys.Control && e.KeyValue == 67) //ctrl + c (cancel)
+                {
+                    CommandWaitingForUserInput = false;
+                    CancelTaskTriggered = true;
+                }
+
+                return;
+            }
+            else if (e.KeyValue == 38) //up arrow
             {
                 if (_previousCommandIndex == -1)
                     _previousCommandIndex = _previousCommands.Count;
@@ -194,7 +194,7 @@ namespace CLI_Sample
                         if (!string.IsNullOrEmpty(line.Trim()))
                         {
                             AppendText(line);
-                            RunCommand(line);
+                            await RunCommand(line);
                         }
                     }
                     e.Handled = true;
@@ -219,8 +219,9 @@ namespace CLI_Sample
             }
             else if (e.KeyValue == 13) //enter
             {
-                RunCommand(richTextBox1.Lines.Last());
+                e.SuppressKeyPress = true;
                 e.Handled = true;
+                await RunCommand(richTextBox1.Lines.Last());
             }
 
             _previousCommandIndex = -1;
@@ -238,7 +239,7 @@ namespace CLI_Sample
 
         #region commands
         private Command? _lastRunCommand = null;
-        private void RunCommand(string cmd)
+        private async Task RunCommand(string cmd)
         {
             try
             {
@@ -278,7 +279,7 @@ namespace CLI_Sample
                 var commandToRun = _commands[cmdText];
                 if (!runByUseStatement)
                     _lastRunCommand = commandToRun;
-                commandToRun.RunCommand(itemsInCmd);
+                await commandToRun.RunCommand(itemsInCmd);
             }
             catch (Exception ex)
             {
@@ -340,16 +341,15 @@ namespace CLI_Sample
         {
             richTextBox1.ResetText();
         }
-        private void ClearLastLine()
+        public void ClearLastLine()
         {
             var i = richTextBox1.Text.LastIndexOf($"\n");
             if (i == -1)
                 return;
             richTextBox1.SelectionStart = i;
-            richTextBox1.SelectionLength = richTextBox1.TextLength - i + 1;
+            richTextBox1.SelectionLength = richTextBox1.TextLength - i;
             richTextBox1.SelectedText = "";
-            richTextBox1.AppendText($"{Environment.NewLine}");
-            richTextBox1.AppendText(_commandPrompt);
+            richTextBox1.AppendText(Environment.NewLine);
         }
 
         private bool IsLastLine(int cursorPosition = -1)
@@ -510,46 +510,36 @@ namespace CLI_Sample
 
             txtAliases.Text = TableHelper.CreateTableOutput(RegisteredAliases);// GetAliasesString().Trim();
         }
+
+        private void nudPageSize_ValueChanged(object sender, EventArgs e)
+        {
+            if (chkPageOutput.Checked)
+                TableHelper.PageSize = (int)nudPageSize.Value;
+            else
+                TableHelper.PageSize = 0;
+        }
+
+        private void chkPageOutput_CheckedChanged(object sender, EventArgs e)
+        {
+            if (chkPageOutput.Checked)
+                TableHelper.PageSize = (int)nudPageSize.Value;
+            else
+                TableHelper.PageSize = 0;
+        }
     }
 
     public static class TableHelper
     {
+        public static int PageSize { get; set; } = 0;
         public static Dictionary<Type, Dictionary<int, object>> OutputsByType = new();
 
         private const int ColumnSpacer = 2;
         private static Dictionary<Type, List<PropertyInfoCliAttributeMapper>> _knownTypes = new();
         public static string CreateTableOutput<T>(IEnumerable<T> collection, bool addRowId = false)
         {
-            if (addRowId)
-            {
-                if (!OutputsByType.ContainsKey(typeof(T)))
-                    OutputsByType[typeof(T)] = new Dictionary<int, object>();
-
-                OutputsByType[typeof(T)].Clear();
-            }
-
-            string table = string.Empty;
+            ClearPreviousTablePrint<T>(addRowId);
             List<TableColumnHelper> columns = GetColumns(collection);
-
-            //Headers
-            if (addRowId)
-                table += string.Format("{0," + (7 * -1).ToString() + "}", "RowId");
-            foreach (var column in columns)
-            {
-                var l = string.Format("{0," + ((column.ColumnWidth + ColumnSpacer) * -1).ToString() + "}", column.ColumnHeader);
-                table += l;
-            }
-            table += Environment.NewLine;
-
-            //Header break
-            if (addRowId)
-                table += new string('-', 5) + new string(' ', 2);
-            foreach (var column in columns)
-            {
-
-                table += new string('-', column.ColumnWidth) + new string(' ', ColumnSpacer);
-            }
-            table += Environment.NewLine;
+            string table = CreateTableHeadersText(addRowId, columns);
 
             //Data
             int rowId = 1;
@@ -574,6 +564,96 @@ namespace CLI_Sample
                 ++rowId;
             }
 
+            return table;
+        }
+
+        public static async Task PrintTableOutput<T>(IOutputWindow outputWindow, IEnumerable<T> collection, bool addRowId = false)
+        {
+            ClearPreviousTablePrint<T>(addRowId);
+            List<TableColumnHelper> columns = GetColumns(collection);
+            outputWindow.AppendText(CreateTableHeadersText(addRowId, columns), false);
+            //Data
+            int rowId = 1;
+            string tableContent = string.Empty;
+            foreach (var item in collection)
+            {
+                if (addRowId)
+                {
+                    OutputsByType[typeof(T)].Add(rowId, item);
+                    tableContent += string.Format("{0," + (7 * -1).ToString() + "}", rowId.ToString());
+                }
+
+                foreach (var column in columns)
+                {
+                    string cellValue = GetCellValue(item, column);
+                    if (cellValue.Length > column.ColumnWidth)
+                    {
+                        cellValue = cellValue.Remove(column.ColumnWidth - 3) + "...";
+                    }
+                    tableContent += string.Format("{0," + ((column.ColumnWidth + ColumnSpacer) * -1).ToString() + "}", cellValue);
+                }
+                tableContent += Environment.NewLine;
+
+                if (PageSize > 0 && (double)rowId % (PageSize) == 0)
+                {
+                    outputWindow.AppendText(tableContent, false);
+                    tableContent = string.Empty;
+                    outputWindow.AppendText("--More-- (space = continue, ctrl + c = cancel)", false);
+                    outputWindow.CommandWaitingForUserInput = true;
+                    do
+                    {
+                        await Task.Run(() => { Thread.Sleep(100); });
+                    } while (outputWindow.CommandWaitingForUserInput && !outputWindow.CancelTaskTriggered);
+
+                    if (outputWindow.CancelTaskTriggered)
+                    {
+                        outputWindow.CommandWaitingForUserInput = false;
+                        outputWindow.CancelTaskTriggered = false;
+                        outputWindow.AppendText("");
+                        return;
+                    }
+
+                    outputWindow.ClearLastLine();
+                }
+
+                ++rowId;
+            }
+            outputWindow.AppendText(tableContent);
+        }
+
+        private static void ClearPreviousTablePrint<T>(bool addRowId)
+        {
+            if (addRowId)
+            {
+                if (!OutputsByType.ContainsKey(typeof(T)))
+                    OutputsByType[typeof(T)] = new Dictionary<int, object>();
+
+                OutputsByType[typeof(T)].Clear();
+            }
+        }
+
+        private static string CreateTableHeadersText(bool addRowId, List<TableColumnHelper> columns)
+        {
+            string table = string.Empty;
+            //Headers
+            if (addRowId)
+                table += string.Format("{0," + (7 * -1).ToString() + "}", "RowId");
+            foreach (var column in columns)
+            {
+                var l = string.Format("{0," + ((column.ColumnWidth + ColumnSpacer) * -1).ToString() + "}", column.ColumnHeader);
+                table += l;
+            }
+            table += Environment.NewLine;
+
+            //Header break
+            if (addRowId)
+                table += new string('-', 5) + new string(' ', 2);
+            foreach (var column in columns)
+            {
+
+                table += new string('-', column.ColumnWidth) + new string(' ', ColumnSpacer);
+            }
+            table += Environment.NewLine;
             return table;
         }
 
@@ -710,12 +790,15 @@ namespace CLI_Sample
         IReadOnlyList<Command> RegisteredCommands { get; }
 
         HashSet<Alias> RegisteredAliases { get; }
+        bool CommandWaitingForUserInput { get; set; }
+        bool CancelTaskTriggered { get; set; }
 
         void AppendText(string text, bool autoReturn = true);
         void AppendText(string text, Color? textColor, bool autoReturn = true);
         void AppendText(string text, Font? font, bool autoReturn = true);
         void AppendText(string text, Font? font, Color? textColor, bool autoReturn = true);
         void ResetCLRText();
+        void ClearLastLine();
     }
 
     public enum CommandName
@@ -756,12 +839,15 @@ namespace CLI_Sample
         public abstract CommandName CMDName { get; }
         [CliTablePropertyFormat(HideFromOutput = true)]
         public virtual string UseStatement { get; }
-        public void RunCommand(string[] cmdItems)
+        public async Task RunCommand(string[] cmdItems)
         {
             if (cmdItems.Length == 2 && HelpSwitches.Contains(cmdItems[1]) && !HelpSwitches.Contains(cmdItems[0]))
                 _outputWindow.AppendText(CommandSyntaxMessage);
             else
-                CommandAction(cmdItems);
+            {
+                var result = CommandAction(cmdItems);
+                await result;
+            }
         }
         protected void RaiseSyntaxException(string usageMessage)
         {
@@ -784,7 +870,7 @@ namespace CLI_Sample
         }
 
         [CliTablePropertyFormat(HideFromOutput = true)]
-        protected abstract Action<string[]> CommandAction { get; }
+        protected abstract Func<string[], Task> CommandAction { get; }
 
         public int CompareTo(Command? other)
         {
@@ -819,9 +905,9 @@ namespace CLI_Sample
                 return new();
         }
 
-        protected override Action<string[]> CommandAction => PrintHelp;
+        protected override Func<string[], Task> CommandAction => PrintHelp;
         
-        private void PrintHelp(string[] cmd)
+        private async Task PrintHelp(string[] cmd)
         {
             if (cmd.Length == 2 && _outputWindow.RegisteredCommands.Count(x => x.CommandAliases.Contains(cmd[1])) == 1)
             {
@@ -834,7 +920,7 @@ namespace CLI_Sample
                 _outputWindow.AppendText(output);// outputWindow.GetHelpString(true));
             }
             else
-                _outputWindow.AppendText(TableHelper.CreateTableOutput(_outputWindow.RegisteredCommands));
+                await TableHelper.PrintTableOutput(_outputWindow, _outputWindow.RegisteredCommands);
                 //_outputWindow.AppendText(_outputWindow.GetHelpString(true));
         }
     }
@@ -853,9 +939,9 @@ namespace CLI_Sample
 
         public override List<string> CommandAliases { get; } = new() { "clr" };
 
-        protected override Action<string[]> CommandAction => ClearOutput;
+        protected override Func<string[], Task> CommandAction => ClearOutput;
 
-        private void ClearOutput(string[] cmd)
+        private async Task ClearOutput(string[] cmd)
         {
             _outputWindow.ResetCLRText();
         }
@@ -885,9 +971,9 @@ namespace CLI_Sample
                 return new();
         }
 
-        protected override Action<string[]> CommandAction => SelectAccount;
+        protected override Func<string[], Task> CommandAction => SelectAccount;
 
-        private void SelectAccount(string[] cmd)
+        private async Task SelectAccount(string[] cmd)
         {
             if (cmd.Length != 2) 
                 RaiseSyntaxException(CommandSyntaxMessage);
@@ -936,9 +1022,9 @@ namespace CLI_Sample
                 return new();
         }
 
-        protected override Action<string[]> CommandAction => SelectInstrument;
+        protected override Func<string[], Task> CommandAction => SelectInstrument;
 
-        private void SelectInstrument(string[] cmd)
+        private async Task SelectInstrument(string[] cmd)
         {
             Account? accToSelect = null;
             
@@ -989,16 +1075,16 @@ namespace CLI_Sample
         public override string CommandSyntaxDetails => "";
         public override string CommandExample => $"{CMDName,15} :: Lists all the loaded accounts";
 
-        protected override Action<string[]> CommandAction => ListAccounts;
+        protected override Func<string[], Task> CommandAction => ListAccounts;
 
-        private void ListAccounts(string[] cmd)
+        private async Task ListAccounts(string[] cmd)
         {
             if (cmd.Length != 1)
                 RaiseSyntaxException(CommandSyntaxMessage);
 
             bool showTip = true;
 
-            _outputWindow.AppendText(TableHelper.CreateTableOutput(SampleData.Accounts, true));
+            TableHelper.PrintTableOutput(_outputWindow, SampleData.Accounts, true);
 
             if (showTip)
                 _outputWindow.AppendText("Tip: type 'use' followed by either the RowID or the account name to select an account");
@@ -1021,9 +1107,9 @@ namespace CLI_Sample
             + $"{Environment.NewLine}{$"{CMDName} *USD",20} :: Lists all the instruments on the exchange of the selected account who's symbols end with USD"
             + $"{Environment.NewLine}{$"{CMDName} BTC*",20} :: Lists all the instruments on the exchange of the selected account who's symbols starts with BTC";
 
-        protected override Action<string[]> CommandAction => ListInsruments;
+        protected override Func<string[], Task> CommandAction => ListInsruments;
 
-        private void ListInsruments(string[] cmd)
+        private async Task ListInsruments(string[] cmd)
         {
             Account? acc = null;
             string filter = "";
@@ -1066,7 +1152,7 @@ namespace CLI_Sample
 
             filter = filter.Replace("*", "");
 
-            _outputWindow.AppendText(TableHelper.CreateTableOutput(SampleData.FindInstruments(filterType, _outputWindow.SelectedAccount, filter), true));
+            TableHelper.PrintTableOutput(_outputWindow, SampleData.FindInstruments(filterType, _outputWindow.SelectedAccount, filter), true);
 
             if (showTip)
                 _outputWindow.AppendText("Tip: type 'use' followed by either the RowID or the Symbol to select an instrument");
@@ -1116,7 +1202,7 @@ namespace CLI_Sample
         }
 
 
-        protected void BuySell(string[] cmd)
+        protected async Task BuySell(string[] cmd)
         {
             Account? account = null;
             Instrument? instrument = null;
@@ -1266,14 +1352,14 @@ namespace CLI_Sample
     {
         public override CommandName CMDName { get; } = CommandName.buy;
         public BuyCommand(IOutputWindow outputWindow) : base(outputWindow) { }
-        protected override Action<string[]> CommandAction => BuySell;
+        protected override Func<string[], Task> CommandAction => BuySell;
     }
 
     public class SellCommand : OrderCommand
     {
         public override CommandName CMDName { get; } = CommandName.sell;
         public SellCommand(IOutputWindow outputWindow) : base(outputWindow) { }
-        protected override Action<string[]> CommandAction => BuySell;
+        protected override Func<string[], Task> CommandAction => BuySell;
     }
 
     public class OrdersCommand : Command
@@ -1291,9 +1377,9 @@ namespace CLI_Sample
             + $"{Environment.NewLine}{$"{CMDName} myAcc1",15} :: Lists all orders on myAcc1"
             + $"{Environment.NewLine}{$"{CMDName} *USD",15} :: Lists all orders for symbole ending in USD";
 
-        protected override Action<string[]> CommandAction => ListOrders;
+        protected override Func<string[], Task> CommandAction => ListOrders;
 
-        protected void ListOrders(string[] cmd)
+        protected async Task ListOrders(string[] cmd)
         {
             OrdersFilter filterType = OrdersFilter.Open;
             string filter = "";
@@ -1324,7 +1410,7 @@ namespace CLI_Sample
 
             bool showTip = true;
 
-            _outputWindow.AppendText(TableHelper.CreateTableOutput(orders, true));
+            TableHelper.PrintTableOutput(_outputWindow, orders, true);
 
             if (showTip)
                 _outputWindow.AppendText("Tip: type 'cancel' followed by either the RowID or the OrderID to cancel an order");
@@ -1344,9 +1430,9 @@ namespace CLI_Sample
             + $"{Environment.NewLine}{$"{CMDName} all",15} :: Cancels all open orders"
             + $"{Environment.NewLine}{$"{CMDName} 4",15} :: If the orders command has been run, order on row 4 of that output will be canceled";
 
-        protected override Action<string[]> CommandAction => CancelOrder;
+        protected override Func<string[], Task> CommandAction => CancelOrder;
 
-        protected void CancelOrder(string[] cmd)
+        protected async Task CancelOrder(string[] cmd)
         {
             Guid orderIdToCancel = Guid.Empty;
             if (cmd.Length != 2)
@@ -1409,11 +1495,11 @@ namespace CLI_Sample
         public override string CommandSyntaxDetails => "";
         public override string CommandExample => $"{CMDName,15} :: Lists all the aliases the user has registered";
 
-        protected override Action<string[]> CommandAction => GetAliasesString;
+        protected override Func<string[], Task> CommandAction => GetAliasesString;
 
-        private void GetAliasesString(string[] cmd)
+        private async Task GetAliasesString(string[] cmd)
         {
-            _outputWindow.AppendText(TableHelper.CreateTableOutput(_outputWindow.RegisteredAliases));
+            TableHelper.PrintTableOutput(_outputWindow, _outputWindow.RegisteredAliases);
         }
     }
 
@@ -1431,9 +1517,9 @@ namespace CLI_Sample
             + $"{Environment.NewLine}{"",35} :: ba1 - results in <buy myAcc1 BTCUSD 100> and will place a market order"
             + $"{Environment.NewLine}{"",35} :: ba1 @25000.95 - results in <buy myAcc1 BTCUSD 100 @25000.95> and will place a limit order";
 
-        protected override Action<string[]> CommandAction => CreateAlias;
+        protected override Func<string[], Task> CommandAction => CreateAlias;
 
-        private void CreateAlias(string[] cmd)
+        private async Task CreateAlias(string[] cmd)
         {
             if (cmd.Length < 3)
                 RaiseSyntaxException(CommandSyntaxMessage);
@@ -1471,9 +1557,9 @@ namespace CLI_Sample
         public override string CommandSyntaxDetails => $"{"key",15} :: The key that represents the alias to be removed";
         public override string CommandExample => $"{$"{CMDName} ba1",15} :: Deregisters a previously registered alias with the key ba1";
 
-        protected override Action<string[]> CommandAction => RemoveAlias;
+        protected override Func<string[], Task> CommandAction => RemoveAlias;
 
-        private void RemoveAlias(string[] cmd)
+        private async Task RemoveAlias(string[] cmd)
         {
             if (cmd.Length != 2)
                 RaiseSyntaxException(CommandSyntaxMessage);
@@ -1501,8 +1587,8 @@ namespace CLI_Sample
             + $"{CMDName + " BTCUSD|ETHUSDC",15} :: Will output basic info about BTCUSD and ETHUSDC on the exchange of the selected account"
             + $"{CMDName + " myAcc1-BTCUSD|ETHUSDC",15} :: Will output basic info about BTCUSD on the excahnge of myAcc1 and ETHUSDC on the exchange of the selected account";
 
-        protected override Action<string[]> CommandAction => Info;
-        private void Info(string[] cmd)
+        protected override Func<string[], Task> CommandAction => Info;
+        private async Task Info(string[] cmd)
         {
             if (cmd.Length == 1)
             {
@@ -1510,7 +1596,7 @@ namespace CLI_Sample
                     RaiseSyntaxException(CommandSyntaxMessage);
 
                 var info = SampleData.GetInfo(SampleData.FindInstrument(_outputWindow.SelectedAccount, _outputWindow.SelectedInstrument.Symbol));
-                _outputWindow.AppendText(TableHelper.CreateTableOutput(new List<InstrumentInfo>() { info }));
+                TableHelper.PrintTableOutput(_outputWindow, new List<InstrumentInfo>() { info });
             }
             else if (cmd.Length == 2)
             {
@@ -1536,7 +1622,7 @@ namespace CLI_Sample
                     }
                 }
 
-                _outputWindow.AppendText(TableHelper.CreateTableOutput(instInfo));
+                TableHelper.PrintTableOutput(_outputWindow, instInfo);
             }
             else
                 RaiseSyntaxException(CommandSyntaxMessage);
