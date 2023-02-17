@@ -43,9 +43,10 @@ namespace CLI_Sample
     public class InstrumentInfo
     {
         public Instrument Instrument { get; set; }
+        public Exchange Exchange => Instrument.Exchange;
         public decimal BestBid { get; set; }
         public decimal BestOffer { get; set; }
-        public decimal Spread => BestOffer - BestBid;
+        public decimal Spread => Math.Round(BestOffer - BestBid, 2);
         public decimal LastPrice { get; set; }
     }
 
@@ -272,9 +273,13 @@ namespace CLI_Sample
             var info = new InstrumentInfo()
             {
                 Instrument = instrument,
-                BestBid = decimal.Parse((Random.Shared.Next(20000) + Random.Shared.NextDouble()).ToString()),
+                BestBid = Math.Round(decimal.Parse((Random.Shared.Next(20000) + Random.Shared.NextDouble()).ToString()), 2),
             };
-            info.BestOffer = decimal.Parse((Random.Shared.Next(int.Parse(Math.Round(info.BestBid, 0).ToString()), 21000) + Random.Shared.NextDouble()).ToString());
+            info.BestOffer = Math.Round(decimal.Parse((Random.Shared.Next(int.Parse(Math.Round(info.BestBid, 0).ToString()), 21000) + Random.Shared.NextDouble()).ToString()), 2);
+
+
+
+            info.LastPrice = Math.Round((info.BestOffer - info.Spread + decimal.Parse(Random.Shared.NextDouble().ToString())));
             return info;
         }
     }

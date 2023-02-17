@@ -758,20 +758,22 @@ namespace CLI_Sample
         public virtual string UseStatement { get; }
         public void RunCommand(string[] cmdItems)
         {
-            if (cmdItems.Length == 2 && HelpSwitches.Contains(cmdItems[1]))
+            if (cmdItems.Length == 2 && HelpSwitches.Contains(cmdItems[1]) && !HelpSwitches.Contains(cmdItems[0]))
                 _outputWindow.AppendText(CommandSyntaxMessage);
             else
                 CommandAction(cmdItems);
         }
         protected void RaiseSyntaxException(string usageMessage)
         {
-            throw new Exception($"Incorrect syntax. {usageMessage}");
+            throw new Exception($"Incorrect syntax. Expected syntax:{Environment.NewLine}\t{usageMessage}");
         }
         public abstract string Desciption { get; }
         [CliTablePropertyFormat(Header = "Syntax", MaxWidth = -1)]
         public abstract string CommandSyntaxMessage { get; }
         [CliTablePropertyFormat(HideFromOutput = true)]
         public abstract string CommandSyntaxDetails { get; }
+        [CliTablePropertyFormat(HideFromOutput = true)]
+        public abstract string CommandExample { get; }
         [CliTablePropertyFormat(HideFromOutput = true)]
         public virtual List<string> CommandAliases { get; } = new();
 
@@ -802,10 +804,12 @@ namespace CLI_Sample
         public HelpCommand(IOutputWindow outputWindow) : base(outputWindow) { }
 
         public override string Desciption => "Print help to the command window";
-        public override string CommandSyntaxMessage => "help [ command ]";
+        public override string CommandSyntaxMessage => $"{CMDName} [ command ]";
         public override string CommandSyntaxDetails => $"{"command", 15} :: name of a command to get further details on";
+        public override string CommandExample => $"{CMDName,15} :: prints general help information"
+            +$"{Environment.NewLine}{$"{CMDName} buy",15} :: prints detailed information about the buy command";
 
-        public override List<string> CommandAliases => new() { "/?", "-help", "-?", "-H", "-h" };
+        public override List<string> CommandAliases { get; } = new() { "/?", "-help", "-?", "-H", "-h" };
 
         internal override List<string> AutoComplete(string[] itemsInCmd)
         {
@@ -822,9 +826,11 @@ namespace CLI_Sample
             if (cmd.Length == 2 && _outputWindow.RegisteredCommands.Count(x => x.CommandAliases.Contains(cmd[1])) == 1)
             {
                 var command = _outputWindow.RegisteredCommands.Single(x => x.CommandAliases.Contains(cmd[1]));
-                string output = command.Desciption;
-                output += Environment.NewLine + command.CommandSyntaxMessage;
-                output += Environment.NewLine + command.CommandSyntaxDetails;
+                string output = $"Description:{Environment.NewLine}\t{command.Desciption}";
+                output += $"{Environment.NewLine}Syntax:{Environment.NewLine}\t{command.CommandSyntaxMessage}";
+                if (!string.IsNullOrWhiteSpace(command.CommandSyntaxDetails))
+                    output += $"{Environment.NewLine}Parameters:{Environment.NewLine}{command.CommandSyntaxDetails}";
+                output += $"{Environment.NewLine}Example:{Environment.NewLine}{command.CommandExample}";
                 _outputWindow.AppendText(output);// outputWindow.GetHelpString(true));
             }
             else
@@ -840,10 +846,12 @@ namespace CLI_Sample
         public ClearCommand(IOutputWindow outputWindow) : base(outputWindow) { }
 
         public override string Desciption => "Clear the command window";
-        public override string CommandSyntaxMessage => "clear";
-        public override string CommandSyntaxDetails => $"{"aliases :: clr"}";
+        public override string CommandSyntaxMessage => $"{CMDName}";
+        public override string CommandSyntaxDetails => "";
+        public override string CommandExample => $"{CMDName,15} :: clears the command window"
+            +$"{Environment.NewLine}{"clr",15} :: a short-hand that clears the command window";
 
-        public override List<string> CommandAliases => new() { "clr" };
+        public override List<string> CommandAliases { get; } = new() { "clr" };
 
         protected override Action<string[]> CommandAction => ClearOutput;
 
@@ -860,11 +868,14 @@ namespace CLI_Sample
         public AccountCommand(IOutputWindow outputWindow) : base(outputWindow) { }
 
         public override string Desciption => "Select and account to trade on";
-        public override string CommandSyntaxMessage => "account ( accountId | accountName )";
+        public override string CommandSyntaxMessage => $"{CMDName}( rowID | accountId | accountName )";
         public override string CommandSyntaxDetails => $"{"accountId",15} :: the guid linked to the account. This will be tested first" +
             $"{Environment.NewLine}{"accountName",15} :: the name of the account. Only valid if there are no duplicates";
+        public override string CommandExample => $"{$"{CMDName} myAcc1",15} :: Marks myAcc1 as the selected account"
+            + $"{Environment.NewLine}{"acc myAcc2",15} :: Marks myAcc2 as the selected account"
+            + $"{Environment.NewLine}{"acc 2",15} :: If the accounts command has been run, account on row 2 of that output will be marked as the selected account";
 
-        public override List<string> CommandAliases => new() { "acc" };
+        public override List<string> CommandAliases { get; } = new() { "acc" };
 
         internal override List<string> AutoComplete(string[] itemsInCmd)
         {
@@ -901,10 +912,14 @@ namespace CLI_Sample
         public InstrumentCommand(IOutputWindow outputWindow) : base(outputWindow) { }
 
         public override string Desciption => "Select an instrument to trade";
-        public override string CommandSyntaxMessage => "instrument ( instrumentSymbol )";
-        public override string CommandSyntaxDetails => $"{"instrumentSymbol",15} :: the exchange symbol of the instrument";
+        public override string CommandSyntaxMessage => $"{CMDName} ( rowID | instrumentSymbol )";
+        public override string CommandSyntaxDetails => $"{"instrumentSymbol",27} :: the exchange symbol of the instrument";
+        public override string CommandExample => $"{$"{CMDName} BTCUSD",27} :: marks BTCUSD on the selected instrument's exchange as the selected instrument"
+            + $"{Environment.NewLine}{$"{CMDName} myAcc1 ETHUSD",27} :: marks myAcc1 as the selected instrument and ETHUSD on the same exchange as the selected instrument"
+            + $"{Environment.NewLine}{"inst myAcc2 BTCUSDC",27} :: marks myAcc2 as the selected instrument and BTCUSDC on the same exchange as the selected instrument"
+            + $"{Environment.NewLine}{"inst 3",27} :: If the instruments command has been run, instrument on row 3 of that output will be marked as the selected instrument";
 
-        public override List<string> CommandAliases => new() { "inst" };
+        public override List<string> CommandAliases { get; } = new() { "inst" };
 
         internal override List<string> AutoComplete(string[] itemsInCmd)
         {
@@ -970,8 +985,9 @@ namespace CLI_Sample
         public AccountsCommand(IOutputWindow outputWindow) : base(outputWindow) { }
 
         public override string Desciption => "List the loaded accounts";
-        public override string CommandSyntaxMessage => "accounts";
+        public override string CommandSyntaxMessage => $"{CMDName}";
         public override string CommandSyntaxDetails => "";
+        public override string CommandExample => $"{CMDName,15} :: Lists all the loaded accounts";
 
         protected override Action<string[]> CommandAction => ListAccounts;
 
@@ -996,9 +1012,14 @@ namespace CLI_Sample
 
         public InstrumentsCommand(IOutputWindow outputWindow) : base(outputWindow) { }
 
-        public override string Desciption => "List the instruments available on a given accounts";
-        public override string CommandSyntaxMessage => "instruments";
-        public override string CommandSyntaxDetails => "";
+        public override string Desciption => "List instruments on the exchange of a given account";
+        public override string CommandSyntaxMessage => $"{CMDName} [account | instumentFilter]";
+        public override string CommandSyntaxDetails => $"{"account",15} :: specifies the account for which to list instruments"
+            +$"{"instumentFilter",15} :: filters the result set. Can use * as wildcard at start or end";
+        public override string CommandExample => $"{CMDName,20} :: Lists all the instruments on the exchange of the selected account"
+            + $"{Environment.NewLine}{$"{CMDName} myAcc1",20} :: Lists all the instruments available on the exchange of myAcc1"
+            + $"{Environment.NewLine}{$"{CMDName} *USD",20} :: Lists all the instruments on the exchange of the selected account who's symbols end with USD"
+            + $"{Environment.NewLine}{$"{CMDName} BTC*",20} :: Lists all the instruments on the exchange of the selected account who's symbols starts with BTC";
 
         protected override Action<string[]> CommandAction => ListInsruments;
 
@@ -1068,10 +1089,14 @@ namespace CLI_Sample
 
         public override string Desciption => $"Places a {CMDName} order or {CMDName}s at market";
         public override string CommandSyntaxMessage => $"{CMDName} [ account ] [ instrument ] ( quantity ) [ price ]";
-        public override string CommandSyntaxDetails => $"{"account",15} :: Optional. If not present the selected account will be used" +
-            $"{Environment.NewLine}{"instrument",15} :: Optional. If not present the selected account will be used" + 
-            $"{Environment.NewLine}{"quantity",15} :: specified as a decimal" +
-            $"{Environment.NewLine}{"price",15} :: Optional. specified as a decimal. If not present market order will be placed";
+        public override string CommandSyntaxDetails => $"{"account",35} :: Optional. If not present the selected account will be used" +
+            $"{Environment.NewLine}{"instrument",35} :: Optional. If not present the selected account will be used" + 
+            $"{Environment.NewLine}{"quantity",35} :: specified as a decimal" +
+            $"{Environment.NewLine}{"price",35} :: Optional. specified as a decimal. If not present market order will be placed";
+        public override string CommandExample => $"{$"{CMDName} myAcc1 BTCUSD 100 @best-2",35} :: Places a limit order for 100 BTCUSD 2 ticks below best on myAcc1"
+            + $"{Environment.NewLine}{$"{CMDName} ETHUSDC 50 @best+3",35} :: Places a limit order for 50 ETHUSDC 3 ticks above best on the selected account"
+            + $"{Environment.NewLine}{$"{CMDName} 25 @95.55",35} :: Places a limit order for 25 of the selected instrument at a price of 95.55 (in quote currency) on the selected account"
+            + $"{Environment.NewLine}{$"{CMDName} 10",35} :: Places a market order for 10 of the selected instrument on the selected account";
 
         internal override List<string> AutoComplete(string[] itemsInCmd)
         {
@@ -1090,87 +1115,6 @@ namespace CLI_Sample
                 return new();
         }
 
-        protected void ListOrders(string[] cmd)
-        {
-            OrdersFilter filterType = OrdersFilter.Open;
-            string filter = "";
-            if (cmd.Length == 1)
-                filterType = OrdersFilter.Open;
-            else if (cmd.Length == 2)
-            {
-                filter = cmd[1];
-                if (cmd[1] == "open")
-                    filterType = OrdersFilter.Open;
-                else if (cmd[1] == "all")
-                    filterType = OrdersFilter.All;
-                else if (cmd[1] == "completed")
-                    filterType = OrdersFilter.Completed;
-                else if (Enum.TryParse(cmd[1], out OrderState x))
-                    filterType = OrdersFilter.State;
-                else if (SampleData.Accounts.Any(x => x.Name == cmd[1]))
-                    filterType = OrdersFilter.Account;
-                else if (SampleData.Instruments.Any(x => x.Symbol == cmd[1]))
-                    filterType = OrdersFilter.Instrument;
-                else
-                    RaiseSyntaxException(CommandSyntaxMessage);
-            }
-            else
-                RaiseSyntaxException(CommandSyntaxMessage);
-
-            var orders = SampleData.FindOrders(filterType, filter);
-
-            _outputWindow.AppendText(TableHelper.CreateTableOutput(orders, true));
-        }
-
-        protected void CancelOrder(string[] cmd)
-        {
-            Guid orderIdToCancel = Guid.Empty;
-            if (cmd.Length != 2)
-                throw new Exception(CommandSyntaxMessage);
-
-            if (cmd[1] == "all")
-            {
-                int affectedOrders = 0;
-                foreach (var item in SampleData.Orders)
-                {
-                    if (item.IsOpen)
-                    {
-                        item.State = OrderState.Canceled;
-                        ++affectedOrders;
-                    }
-                }
-                if (affectedOrders > 0)
-                    _outputWindow.AppendText($"{affectedOrders} orders cancelled");
-                else
-                    _outputWindow.AppendText($"There are no open orders to cancel");
-                SampleData.Orders.ForEach(x => x.State = OrderState.Canceled);
-                return;
-            }
-            else if (TableHelper.OutputsByType.ContainsKey(typeof(Order))
-                    && int.TryParse(cmd[1], out int rowId)
-                    && TableHelper.OutputsByType[typeof(Order)][rowId] is Order order)
-            {
-                orderIdToCancel = order.ID;
-            }
-            
-            if (orderIdToCancel == Guid.Empty && !Guid.TryParse(cmd[1], out orderIdToCancel))
-                throw new Exception($"Cannot convert {cmd[1]} to order ID");
-
-
-            var orders = SampleData.Orders.Where(x => x.ID == orderIdToCancel);
-            if (orders.Count() == 0)
-                throw new Exception($"No order with ID {orderIdToCancel}");
-            else if (orders.Count() > 1)
-                throw new Exception($"More than 1 matching order with ID {orderIdToCancel}");
-
-            if (orders.Single().IsOpen)
-            {
-                orders.Single().State = OrderState.Canceled;
-                _outputWindow.AppendText($"Order cancelled");
-            }
-            else
-                _outputWindow.AppendText($"Cannot cancel an order that is not open.");
-        }
 
         protected void BuySell(string[] cmd)
         {
@@ -1332,30 +1276,125 @@ namespace CLI_Sample
         protected override Action<string[]> CommandAction => BuySell;
     }
 
-    public class OrdersCommand : OrderCommand
+    public class OrdersCommand : Command
     {
         public override CommandName CMDName { get; } = CommandName.orders;
 
         public OrdersCommand(IOutputWindow outputWindow) : base(outputWindow) { }
 
         public override string Desciption => "Lists all open orders (or use switches to list all orders)";
-        public override string CommandSyntaxMessage => "orders [ filter ]";
-        public override string CommandSyntaxDetails => $"{"filter",15} :: Optional. [ open (default) | all | state | accountId | instrumentSymbol ] ";
+        public override string CommandSyntaxMessage => $"{CMDName} [ filter ]";
+        public override string CommandSyntaxDetails => $"{"filter",15} :: Optional. [ open (default) | all | state | accountId | instrumentSymbol ]"
+            + $"{Environment.NewLine}{"",15} :: if there is an account with the same name as an instrument's symbole, the filter will be applied on the account";
+        public override string CommandExample => $"{CMDName,15} :: Lists all open orders on all loaded accounts"
+            + $"{Environment.NewLine}{$"{CMDName} all",15} :: Lists all orders on all loaded accounts"
+            + $"{Environment.NewLine}{$"{CMDName} myAcc1",15} :: Lists all orders on myAcc1"
+            + $"{Environment.NewLine}{$"{CMDName} *USD",15} :: Lists all orders for symbole ending in USD";
 
         protected override Action<string[]> CommandAction => ListOrders;
+
+        protected void ListOrders(string[] cmd)
+        {
+            OrdersFilter filterType = OrdersFilter.Open;
+            string filter = "";
+            if (cmd.Length == 1)
+                filterType = OrdersFilter.Open;
+            else if (cmd.Length == 2)
+            {
+                filter = cmd[1];
+                if (cmd[1] == "open")
+                    filterType = OrdersFilter.Open;
+                else if (cmd[1] == "all")
+                    filterType = OrdersFilter.All;
+                else if (cmd[1] == "completed")
+                    filterType = OrdersFilter.Completed;
+                else if (Enum.TryParse(cmd[1], out OrderState x))
+                    filterType = OrdersFilter.State;
+                else if (SampleData.Accounts.Any(x => x.Name == cmd[1]))
+                    filterType = OrdersFilter.Account;
+                else if (SampleData.Instruments.Any(x => x.Symbol == cmd[1]))
+                    filterType = OrdersFilter.Instrument;
+                else
+                    RaiseSyntaxException(CommandSyntaxMessage);
+            }
+            else
+                RaiseSyntaxException(CommandSyntaxMessage);
+
+            var orders = SampleData.FindOrders(filterType, filter);
+
+            bool showTip = true;
+
+            _outputWindow.AppendText(TableHelper.CreateTableOutput(orders, true));
+
+            if (showTip)
+                _outputWindow.AppendText("Tip: type 'cancel' followed by either the RowID or the OrderID to cancel an order");
+        }
     }
 
-    public class CancelCommand : OrderCommand
+    public class CancelCommand : Command
     {
         public override CommandName CMDName { get; } = CommandName.cancel;
 
         public CancelCommand(IOutputWindow outputWindow) : base(outputWindow) { }
 
         public override string Desciption => "Cancels an order (or all orders using all switch)";
-        public override string CommandSyntaxMessage => "cancel (orderId | all)";
+        public override string CommandSyntaxMessage => $"{CMDName} (rowID | orderId | all)";
         public override string CommandSyntaxDetails => $"{"orderId",15} :: The guid associated with an order or the word all";
+        public override string CommandExample => $"{$"{CMDName} 884b5e",15} :: Cancels the order with OrderID 884b5e"
+            + $"{Environment.NewLine}{$"{CMDName} all",15} :: Cancels all open orders"
+            + $"{Environment.NewLine}{$"{CMDName} 4",15} :: If the orders command has been run, order on row 4 of that output will be canceled";
 
         protected override Action<string[]> CommandAction => CancelOrder;
+
+        protected void CancelOrder(string[] cmd)
+        {
+            Guid orderIdToCancel = Guid.Empty;
+            if (cmd.Length != 2)
+                throw new Exception(CommandSyntaxMessage);
+
+            if (cmd[1] == "all")
+            {
+                int affectedOrders = 0;
+                foreach (var item in SampleData.Orders)
+                {
+                    if (item.IsOpen)
+                    {
+                        item.State = OrderState.Canceled;
+                        ++affectedOrders;
+                    }
+                }
+                if (affectedOrders > 0)
+                    _outputWindow.AppendText($"{affectedOrders} orders cancelled");
+                else
+                    _outputWindow.AppendText($"There are no open orders to cancel");
+                SampleData.Orders.ForEach(x => x.State = OrderState.Canceled);
+                return;
+            }
+            else if (TableHelper.OutputsByType.ContainsKey(typeof(Order))
+                    && int.TryParse(cmd[1], out int rowId)
+                    && TableHelper.OutputsByType[typeof(Order)][rowId] is Order order)
+            {
+                orderIdToCancel = order.ID;
+            }
+
+            if (orderIdToCancel == Guid.Empty && !Guid.TryParse(cmd[1], out orderIdToCancel))
+                throw new Exception($"Cannot convert {cmd[1]} to order ID");
+
+
+            var orders = SampleData.Orders.Where(x => x.ID == orderIdToCancel);
+            if (orders.Count() == 0)
+                throw new Exception($"No order with ID {orderIdToCancel}");
+            else if (orders.Count() > 1)
+                throw new Exception($"More than 1 matching order with ID {orderIdToCancel}");
+
+            if (orders.Single().IsOpen)
+            {
+                orders.Single().State = OrderState.Canceled;
+                _outputWindow.AppendText($"Order cancelled");
+            }
+            else
+                _outputWindow.AppendText($"Cannot cancel an order that is not open.");
+        }
 
     }
 
@@ -1366,8 +1405,9 @@ namespace CLI_Sample
         public AliasesCommand(IOutputWindow outputWindow) : base(outputWindow) { }
 
         public override string Desciption => "Lists all the known aliases";
-        public override string CommandSyntaxMessage => "aliases";
+        public override string CommandSyntaxMessage => $"{CMDName} ";
         public override string CommandSyntaxDetails => "";
+        public override string CommandExample => $"{CMDName,15} :: Lists all the aliases the user has registered";
 
         protected override Action<string[]> CommandAction => GetAliasesString;
 
@@ -1384,9 +1424,12 @@ namespace CLI_Sample
         public AliasCommand(IOutputWindow outputWindow) : base(outputWindow) { }
 
         public override string Desciption => "Creates an alias for for some part of a commonly used command";
-        public override string CommandSyntaxMessage => "alias ( key ) ( replacementValue )";
-        public override string CommandSyntaxDetails => $"{"key",15} :: The key that will be used to alias a command. Maximum 8 characters" +
-            $"{Environment.NewLine}\t{"replacementValue",15} :: Full or part of text that can be used to make up a valid command";
+        public override string CommandSyntaxMessage => $"{CMDName} ( key ) ( replacementValue )";
+        public override string CommandSyntaxDetails => $"{"key",35} :: The key that will be used to alias a command. Maximum 8 characters" +
+            $"{Environment.NewLine}\t{"replacementValue",35} :: Full or part of text that can be used to make up a valid command";
+        public override string CommandExample => $"{$"{CMDName} ba1 buy myAcc1 BTCUSD 100",35} :: Adds an alias with the key ba1 which can be used as follows"
+            + $"{Environment.NewLine}{"",35} :: ba1 - results in <buy myAcc1 BTCUSD 100> and will place a market order"
+            + $"{Environment.NewLine}{"",35} :: ba1 @25000.95 - results in <buy myAcc1 BTCUSD 100 @25000.95> and will place a limit order";
 
         protected override Action<string[]> CommandAction => CreateAlias;
 
@@ -1424,8 +1467,9 @@ namespace CLI_Sample
         public UnaliasCommand(IOutputWindow outputWindow) : base(outputWindow) { }
 
         public override string Desciption => "Deletes an alias";
-        public override string CommandSyntaxMessage => "unalias ( key )";
+        public override string CommandSyntaxMessage => $"{CMDName} ( key )";
         public override string CommandSyntaxDetails => $"{"key",15} :: The key that represents the alias to be removed";
+        public override string CommandExample => $"{$"{CMDName} ba1",15} :: Deregisters a previously registered alias with the key ba1";
 
         protected override Action<string[]> CommandAction => RemoveAlias;
 
@@ -1451,7 +1495,11 @@ namespace CLI_Sample
 
         public override string Desciption => "Prints some basic info about ";
         public override string CommandSyntaxMessage => $"{CMDName} [ instruments ]";
-        public override string CommandSyntaxDetails => $"{"instruments",15} :: Optional. Pipe delimited list of instruments to show values for. If not present the selected instrument will be used";
+        public override string CommandSyntaxDetails => $"{"instruments",15} :: Optional. Pipe delimited list of instruments (can include account) to show values for. If not present the selected instrument will be used";
+        public override string CommandExample => $"{CMDName,15} :: Will output basic info about the selected insturment" 
+            + $"{CMDName + " BTCUSD",15} :: Will output basic info about BTCUSD on the exchange of the selected account"
+            + $"{CMDName + " BTCUSD|ETHUSDC",15} :: Will output basic info about BTCUSD and ETHUSDC on the exchange of the selected account"
+            + $"{CMDName + " myAcc1-BTCUSD|ETHUSDC",15} :: Will output basic info about BTCUSD on the excahnge of myAcc1 and ETHUSDC on the exchange of the selected account";
 
         protected override Action<string[]> CommandAction => Info;
         private void Info(string[] cmd)
@@ -1464,6 +1512,34 @@ namespace CLI_Sample
                 var info = SampleData.GetInfo(SampleData.FindInstrument(_outputWindow.SelectedAccount, _outputWindow.SelectedInstrument.Symbol));
                 _outputWindow.AppendText(TableHelper.CreateTableOutput(new List<InstrumentInfo>() { info }));
             }
+            else if (cmd.Length == 2)
+            {
+                string[] instrumentSymbols = cmd[1].Split('|');
+                List<InstrumentInfo> instInfo = new();
+                foreach (var instrument in instrumentSymbols)
+                {
+                    string[] accInst = instrument.Split('-');
+                    if (accInst.Length == 1)
+                    {
+                        if (_outputWindow.SelectedAccount == null)
+                            RaiseSyntaxException(CommandSyntaxMessage);
+                        
+                        var acc = _outputWindow.SelectedAccount;
+                        var inst = SampleData.FindInstrument(acc, accInst[0]);
+                        instInfo.Add(SampleData.GetInfo(inst));
+                    }
+                    else if (accInst.Length == 2)
+                    {
+                        var acc = SampleData.FindAccount(accInst[0]);
+                        var inst = SampleData.FindInstrument(acc, accInst[1]);
+                        instInfo.Add(SampleData.GetInfo(inst));
+                    }
+                }
+
+                _outputWindow.AppendText(TableHelper.CreateTableOutput(instInfo));
+            }
+            else
+                RaiseSyntaxException(CommandSyntaxMessage);
         }
     }
 }
