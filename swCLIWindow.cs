@@ -1084,7 +1084,7 @@ namespace CLI_Sample
 
             bool showTip = true;
 
-            TableHelper.PrintTableOutput(_outputWindow, SampleData.Accounts, true);
+            await TableHelper.PrintTableOutput(_outputWindow, SampleData.Accounts, true);
 
             if (showTip)
                 _outputWindow.AppendText("Tip: type 'use' followed by either the RowID or the account name to select an account");
@@ -1152,7 +1152,7 @@ namespace CLI_Sample
 
             filter = filter.Replace("*", "");
 
-            TableHelper.PrintTableOutput(_outputWindow, SampleData.FindInstruments(filterType, _outputWindow.SelectedAccount, filter), true);
+            await TableHelper.PrintTableOutput(_outputWindow, SampleData.FindInstruments(filterType, _outputWindow.SelectedAccount, filter), true);
 
             if (showTip)
                 _outputWindow.AppendText("Tip: type 'use' followed by either the RowID or the Symbol to select an instrument");
@@ -1410,7 +1410,7 @@ namespace CLI_Sample
 
             bool showTip = true;
 
-            TableHelper.PrintTableOutput(_outputWindow, orders, true);
+            await TableHelper.PrintTableOutput(_outputWindow, orders, true);
 
             if (showTip)
                 _outputWindow.AppendText("Tip: type 'cancel' followed by either the RowID or the OrderID to cancel an order");
@@ -1499,7 +1499,7 @@ namespace CLI_Sample
 
         private async Task GetAliasesString(string[] cmd)
         {
-            TableHelper.PrintTableOutput(_outputWindow, _outputWindow.RegisteredAliases);
+            await TableHelper.PrintTableOutput(_outputWindow, _outputWindow.RegisteredAliases);
         }
     }
 
@@ -1596,7 +1596,7 @@ namespace CLI_Sample
                     RaiseSyntaxException(CommandSyntaxMessage);
 
                 var info = SampleData.GetInfo(SampleData.FindInstrument(_outputWindow.SelectedAccount, _outputWindow.SelectedInstrument.Symbol));
-                TableHelper.PrintTableOutput(_outputWindow, new List<InstrumentInfo>() { info });
+                await TableHelper.PrintTableOutput(_outputWindow, new List<InstrumentInfo>() { info });
             }
             else if (cmd.Length == 2)
             {
@@ -1622,7 +1622,7 @@ namespace CLI_Sample
                     }
                 }
 
-                TableHelper.PrintTableOutput(_outputWindow, instInfo);
+                await TableHelper.PrintTableOutput(_outputWindow, instInfo);
             }
             else
                 RaiseSyntaxException(CommandSyntaxMessage);
