@@ -4,6 +4,8 @@ using System.Data.Common;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
+using System.Windows.Forms;
+using static System.Net.Mime.MediaTypeNames;
 
 namespace CLI_Sample
 {
@@ -182,7 +184,7 @@ namespace CLI_Sample
             {
                 e.SuppressKeyPress = true;
                 e.Handled = true;
-                AutoComplete(richTextBox1.Lines.Last());
+                AutoComplete(richTextBox1.Lines.Last().ToLower());
             }
             else if (e.KeyValue == 8) //backspace
             {
@@ -287,7 +289,18 @@ namespace CLI_Sample
                 _previousCommands.Add(text);
                 _previousCommandIndex = -1;
 
-                var itemsInCmd = text.Split(' ');
+                var itemsInCmd = Regex.Split(text, "(?<=^[^\"]*(?:\"[^\"]*\"[^\"]*)*) (?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)");
+                for (int i = 0; i < itemsInCmd.Count(); i++)
+                {
+                    itemsInCmd[i] = itemsInCmd[i].Trim('"');
+                }
+
+                //var itemsInCmd = Regex.Matches(text, @"[\""].+?[\""]|[^ ]+")
+                //.Cast<Match>()
+                //.Select(m => m.Value)
+                //.ToArray();
+
+                //var itemsInCmd = text.Split(' ');
                 if (itemsInCmd[0]?.ToLower() != "unalias" && itemsInCmd[0]?.ToLower() != "alias")
                     itemsInCmd = ApplyAliases(itemsInCmd);
 
@@ -332,8 +345,12 @@ namespace CLI_Sample
             List<string> result = new();
             for (int i = 0; i < itemsInCmd.Length; i++)
             {
-                if (RegisteredAliases.Any(x=>x.Key == itemsInCmd[i]))
-                    result.AddRange(RegisteredAliases.Single(x=>x.Key==itemsInCmd[i]).Value.Split(" "));
+                if (RegisteredAliases.Any(x => x.Key == itemsInCmd[i]))
+                {
+
+                    var items = Regex.Split(RegisteredAliases.Single(x => x.Key == itemsInCmd[i]).Value, "(?<=^[^\"]*(?:\"[^\"]*\"[^\"]*)*) (?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)");
+                    result.AddRange(items);
+                }
                 else
                     result.Add(itemsInCmd[i]);
             }
@@ -511,7 +528,7 @@ namespace CLI_Sample
                 if (string.IsNullOrWhiteSpace(text))
                     return;
 
-                var itemsInCmd = text.Split(' ');
+                var itemsInCmd = Regex.Split(text, "(?<=^[^\"]*(?:\"[^\"]*\"[^\"]*)*) (?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)");
 
                 List<string> matchingOptions = new();
 
@@ -525,7 +542,15 @@ namespace CLI_Sample
                 else if (matchingOptions.Count() == 1 && matchingOptions.Single() == itemsInCmd.Last())
                     return;
                 else if (matchingOptions.Count() == 1)
-                    AppendText(matchingOptions.Single().Remove(0, itemsInCmd.Last().Length), false);
+                {
+                    richTextBox1.SelectionStart = richTextBox1.TextLength - itemsInCmd.Last().Length;
+                    richTextBox1.SelectionLength = itemsInCmd.Last().Length;
+                    string autoComplete = matchingOptions.Single();
+                    if (autoComplete.Contains(' '))
+                        autoComplete = $"\"{matchingOptions.Single()}\"";
+                    richTextBox1.SelectedText = autoComplete;
+                    //AppendText(matchingOptions.Single().Remove(0, itemsInCmd.Last().Length), false);
+                }
                 else
                 {
                     var repeatingCharacters = GetRepeatingCharacters(matchingOptions);

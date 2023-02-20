@@ -286,6 +286,8 @@ namespace CLI_Sample
             new() {Name = "Bin1", Exchange = Exchange.Binance},
             new() {Name = "Bin2", Exchange = Exchange.Binance},
             new() {Name = "Bit1", Exchange = Exchange.BitMEX},
+            new() {Name = "Bit1 Demo1", Exchange = Exchange.BitMEX},
+            new() {Name = "SW Demo - Bin1", Exchange = Exchange.Binance},
         };
 
         public static List<Account> Accounts
