@@ -1,6 +1,7 @@
 ﻿using System.Collections;
 using System.Data;
 using System.Data.Common;
+using System.Drawing;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
@@ -11,6 +12,23 @@ namespace CLI_Sample
 {
     public partial class swCLIWindow : UserControl, IOutputWindow
     {
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private extern static int GetWindowLong(IntPtr hWnd, int index);
+
+        public static bool VerticalScrollBarVisible(Control ctl)
+        {
+            int style = GetWindowLong(ctl.Handle, -16);
+            return (style & 0x200000) != 0;
+        }
+
+        public int ClientHeight => richTextBox1.ClientRectangle.Height;
+        public bool ScrolBarVisible
+        {
+            get
+            {
+                return VerticalScrollBarVisible(richTextBox1);
+            }
+        }
         public RichTextBox RTB => richTextBox1;
         public HashSet<Alias> RegisteredAliases { get; } = new();
         public IReadOnlyList<Command> RegisteredCommands { get => _commands.Values.Distinct().ToList(); }
@@ -51,6 +69,8 @@ namespace CLI_Sample
                     return "[:]>";
             }
         }
+
+        public int LastKeyDownKeyValue { get; private set; }
 
         public swCLIWindow()
         {
@@ -123,22 +143,32 @@ namespace CLI_Sample
             s += $"TextLength: {richTextBox1.Text.Length}\r\n";
 
             txtTextChanged.Text = s;
-
         }
 
+        private bool _isPastingData = false;
         private async void richTextBox1_KeyDown(object sender, KeyEventArgs e)
         {
+            if (_isPastingData)
+            {
+                if (ModifierKeys == Keys.Control && e.KeyValue == 67) //ctrl + c (cancel)
+                    CancelTaskTriggered = true;
+                
+                e.SuppressKeyPress = true;
+                e.Handled = true;
+                return;
+            }
             if (_isLongRunningTaskBusy)
             {
                 e.SuppressKeyPress = true;
                 e.Handled = true;
                 return;
             }
+            LastKeyDownKeyValue = e.KeyValue;
             if (CommandWaitingForUserInput)
             {
                 e.SuppressKeyPress = true;
                 e.Handled = true;
-                if (e.KeyValue == 32) //space
+                if (e.KeyValue == 32 || e.KeyValue == 13) //32 = space 13 = enter
                     CommandWaitingForUserInput = false;
 
                 if (e.KeyValue == 27) //esc
@@ -215,20 +245,32 @@ namespace CLI_Sample
             }
             else if (ModifierKeys == Keys.Control && e.KeyValue == 86) // 86 =v (past)
             {
+                _isPastingData = true;
+                e.Handled = true;
+                e.SuppressKeyPress = true;
                 string clipBoardText = Clipboard.GetText();
                 if (clipBoardText.Contains("\n"))
                 {
                     foreach (var line in clipBoardText.Split("\n"))
                     {
+                        if (CancelTaskTriggered)
+                        {
+                            CancelTaskTriggered = false;
+                            AppendText("Paste multi line cancelled by user");
+                            AppendComandPromptHeader();
+                            richTextBox1.AppendText($"{_commandPrompt}");
+                            UpdateTextBoxes();
+                            break;
+                        }
                         if (!string.IsNullOrEmpty(line.Trim()))
                         {
                             AppendText(line);
                             await RunCommand(line);
                         }
                     }
-                    e.Handled = true;
-                    return;
                 }
+                _isPastingData = false;
+                return;
             }
             else if ((e.KeyValue >= 48 && e.KeyValue <= 57) ||
                 (e.KeyValue >= 65 && e.KeyValue <= 90) ||
@@ -295,12 +337,6 @@ namespace CLI_Sample
                     itemsInCmd[i] = itemsInCmd[i].Trim('"');
                 }
 
-                //var itemsInCmd = Regex.Matches(text, @"[\""].+?[\""]|[^ ]+")
-                //.Cast<Match>()
-                //.Select(m => m.Value)
-                //.ToArray();
-
-                //var itemsInCmd = text.Split(' ');
                 if (itemsInCmd[0]?.ToLower() != "unalias" && itemsInCmd[0]?.ToLower() != "alias")
                     itemsInCmd = ApplyAliases(itemsInCmd);
 
@@ -324,7 +360,7 @@ namespace CLI_Sample
             catch (DuplicateResultException dex)
             {
                 AppendText($"Error: {dex.Message}", new Font(this.Font, FontStyle.Bold), Color.Red);
-                TableHelper.PrintTableOutput(this, dex.Duplicates);
+                await TableHelper.PrintTableOutput(this, dex.Duplicates);
             }
             catch (Exception ex)
             {
@@ -465,36 +501,37 @@ namespace CLI_Sample
         }
         #endregion
 
-        public void StartLongRunningTask(string outputMessage, bool showLoadingSpinner)
+        public Task StartLongRunningTask(string outputMessage, bool showLoadingSpinner)
         {
             _isLongRunningTaskBusy = true;
-            Task.Run(() =>
+            var t = Task.Run(() =>
             {
-                AppendText($"{outputMessage} / ", false);
-
                 int pos = 0;
                 Action a = new Action(() =>
                 {
-                    ++pos;
                     SelectLastLine();
                     switch (pos)
                     {
+                        case 0:
+                            AppendText($"{outputMessage}", false);
+                            break;
                         case 1:
-                            richTextBox1.SelectedText = @$"{Environment.NewLine}{outputMessage} /";
+                            richTextBox1.SelectedText = @$"{Environment.NewLine}{outputMessage} |";
                             break;
                         case 2:
-                            richTextBox1.SelectedText = @$"{Environment.NewLine}{outputMessage} -";
+                            richTextBox1.SelectedText = @$"{Environment.NewLine}{outputMessage} /";
                             break;
                         case 3:
-                            richTextBox1.SelectedText = @$"{Environment.NewLine}{outputMessage} \";
+                            richTextBox1.SelectedText = @$"{Environment.NewLine}{outputMessage} -";
                             break;
                         case 4:
-                            richTextBox1.SelectedText = @$"{Environment.NewLine}{outputMessage} |";
+                            richTextBox1.SelectedText = @$"{Environment.NewLine}{outputMessage} \";
                             pos = 0;
                             break;
                         default:
                             break;
                     }
+                    ++pos;
                 });
 
 
@@ -505,16 +542,23 @@ namespace CLI_Sample
                     else
                         a();
                     
-                    Thread.Sleep(250);
+                    if (_isLongRunningTaskBusy)
+                        Thread.Sleep(250);
                 } while (_isLongRunningTaskBusy);
             });
-
-
+            return t;
         }
 
-        public void StopLongRunningTask()
+        public async Task StopLongRunningTask(Task t)
         {
             _isLongRunningTaskBusy = false;
+            await Task.Run(() =>
+            {
+                while (!t.IsCompleted)
+                {
+                    Thread.Sleep(100);
+                }
+            });
         }
 
         public void AutoComplete(string cmd)
@@ -643,26 +687,41 @@ namespace CLI_Sample
             txtAliases.Text = TableHelper.CreateTableOutput(RegisteredAliases.ToList());// GetAliasesString().Trim();
         }
 
-        private void nudPageSize_ValueChanged(object sender, EventArgs e)
-        {
-            if (chkPageOutput.Checked)
-                TableHelper.PageSize = (int)nudPageSize.Value;
-            else
-                TableHelper.PageSize = 0;
-        }
-
         private void chkPageOutput_CheckedChanged(object sender, EventArgs e)
         {
-            if (chkPageOutput.Checked)
-                TableHelper.PageSize = (int)nudPageSize.Value;
-            else
-                TableHelper.PageSize = 0;
+            TableHelper.PageOutput = chkPageOutput.Checked;
+        }
+
+        public int GetCharIndexFromPosition(Point point)
+        {
+            return richTextBox1.GetCharIndexFromPosition(point);
+        }
+
+        public int GetLineFromCharIndex(int lastVisibleCharIndex)
+        {
+            return richTextBox1.GetLineFromCharIndex(lastVisibleCharIndex);
+        }
+
+        private void chkDelayOperations_CheckedChanged(object sender, EventArgs e)
+        {
+            SampleData.DelayOperations = chkDelayOperations.Checked;
+        }
+
+        public void ScrollToBottom()
+        {
+            richTextBox1.SelectionStart = richTextBox1.TextLength;
+            richTextBox1.ScrollToCaret();
+        }
+
+        private void richTextBox1_SizeChanged(object sender, EventArgs e)
+        {
+            ScrollToBottom();
         }
     }
 
     public static class TableHelper
     {
-        public static int PageSize { get; set; } = 0;
+        public static bool PageOutput { get; set; }
         public static Dictionary<Type, Dictionary<int, object>> OutputsByType = new();
 
         private const int ColumnSpacer = 2;
@@ -698,12 +757,15 @@ namespace CLI_Sample
 
         public static async Task PrintTableOutput(IOutputWindow outputWindow, ICollection collection, bool addRowId = false)
         {
+            int rowsPerPage = (PageOutput ? GetRowsToScroll(outputWindow) : collection.Count) - 3; //cater for the input row, header row, and the header seperater row
+
             Type type = collection.GetType().GetGenericArguments()[0];
             ClearPreviousTablePrint(type);
             List<TableColumnHelper> columns = GetColumns(collection);
             outputWindow.AppendText(CreateTableHeadersText(addRowId, columns), false);
             //Data
-            int rowId = 1;
+            int printedRowCountInBatch = 0;
+            int rowId = 1; //Add 2 for header and header line break rows
             string tableContent = string.Empty;
             foreach (var item in collection)
             {
@@ -720,11 +782,12 @@ namespace CLI_Sample
                 }
                 tableContent += Environment.NewLine;
 
-                if (PageSize > 0 && (double)rowId % (PageSize) == 0)
+                if (PageOutput && outputWindow.ScrolBarVisible && printedRowCountInBatch == rowsPerPage)
                 {
+                    printedRowCountInBatch = 0;
                     outputWindow.AppendText(tableContent, false);
                     tableContent = string.Empty;
-                    outputWindow.AppendText("--More-- (space = continue, ctrl + c = cancel)", false);
+                    outputWindow.AppendText($"--More-- {rowId} of {collection.Count} (space = next page, enter = move 1, esc / ctrl + c = cancel)", false);
                     outputWindow.CommandWaitingForUserInput = true;
                     do
                     {
@@ -738,13 +801,35 @@ namespace CLI_Sample
                         outputWindow.AppendText("");
                         return;
                     }
-
+                    outputWindow.ScrollToBottom();
+                    if (outputWindow.LastKeyDownKeyValue == 13) //enter
+                        rowsPerPage = 1;
+                    else if (outputWindow.LastKeyDownKeyValue == 32) //space
+                        rowsPerPage = (PageOutput ? GetRowsToScroll(outputWindow) : collection.Count) - 3; //Keep the last printed row on screen and cater for the --More-- row
+                    //if the screen is really small we don't want to scroll past the last couple lines to print the next command input
+                    if (rowId + rowsPerPage == collection.Count && rowsPerPage > 3)
+                        rowsPerPage -= 3;
                     outputWindow.ClearLastLine();
                 }
 
+                ++printedRowCountInBatch;
                 ++rowId;
             }
             outputWindow.AppendText(tableContent);
+        }
+
+        private static int GetRowsToScroll(IOutputWindow outputWindow)
+        {
+            int lastVisibleCharIndex = outputWindow.GetCharIndexFromPosition(new Point(0, outputWindow.ClientHeight));
+            int lastVisibleLine = outputWindow.GetLineFromCharIndex(lastVisibleCharIndex);
+
+
+            int firstVisibleCharIndex = outputWindow.GetCharIndexFromPosition(new Point(0, 0));
+            int firstVisibleLine = outputWindow.GetLineFromCharIndex(firstVisibleCharIndex);
+            /*if (lastVisibleLine >= outputWindow.Lines.Length)
+                return -1;
+            else*/
+            return lastVisibleLine - firstVisibleLine;
         }
 
         private static void ClearPreviousTablePrint(Type type)
@@ -975,16 +1060,22 @@ namespace CLI_Sample
         HashSet<Alias> RegisteredAliases { get; }
         bool CommandWaitingForUserInput { get; set; }
         bool CancelTaskTriggered { get; set; }
-        
+        int ClientHeight { get; }
+        bool ScrolBarVisible { get; }
+        int LastKeyDownKeyValue { get; }
+
         void AppendText(string text, bool autoReturn = true);
         void AppendText(string text, Color? textColor, bool autoReturn = true);
         void AppendText(string text, Font? font, bool autoReturn = true);
         void AppendText(string text, Font? font, Color? textColor, bool autoReturn = true);
         void ResetCLRText();
         void ClearLastLine();
+        void ScrollToBottom();
 
-        void StartLongRunningTask(string outputMessage, bool showLoadingSpinner);
-        void StopLongRunningTask();
+        Task StartLongRunningTask(string outputMessage, bool showLoadingSpinner);
+        Task StopLongRunningTask(Task task);
+        int GetCharIndexFromPosition(Point point);
+        int GetLineFromCharIndex(int lastVisibleCharIndex);
     }
 
     public enum CommandName
@@ -1499,7 +1590,7 @@ namespace CLI_Sample
                 outputPrice = "best" + (val - 5).ToString();
             }
 
-            _outputWindow.StartLongRunningTask("Placing order", true);
+            var task = _outputWindow.StartLongRunningTask("Placing order", true);
 
             await SampleData.AddOrder(new()
             {
@@ -1511,7 +1602,7 @@ namespace CLI_Sample
                 State = price == 999 ? OrderState.Filled : OrderState.Open,
             });
 
-            _outputWindow.StopLongRunningTask();
+            await _outputWindow.StopLongRunningTask(task);
             _outputWindow.ClearLastLine();
 
             _outputWindow.AppendText($"{CMDName} {qty} {instrument.Symbol} on account {account.Name} at {outputPrice}");

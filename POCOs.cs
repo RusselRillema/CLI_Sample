@@ -321,11 +321,13 @@ namespace CLI_Sample
         private static List<Order> _orders { get; } = new();
 
         public static IReadOnlyList<Order> Orders { get => _orders; }
+        public static bool DelayOperations { get; internal set; }
 
         public static async Task AddOrder(Order order)
         {
             _orders.Add(order);
-            await Task.Run(() => { Thread.Sleep(3000); });
+            if (DelayOperations)
+                await Task.Run(() => { Thread.Sleep(3000); });
         }
 
         public static async Task<int> CancelOrders(IEnumerable<Order> orders)
@@ -339,7 +341,8 @@ namespace CLI_Sample
                     ++affectedOrders;
                 }
             }
-            await Task.Run(() => { Thread.Sleep(3000); });
+            if (DelayOperations)
+                await Task.Run(() => { Thread.Sleep(3000); });
             return affectedOrders;
         }
 
