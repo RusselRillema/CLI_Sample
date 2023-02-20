@@ -29,7 +29,6 @@ namespace CLI_Sample
                 return VerticalScrollBarVisible(richTextBox1);
             }
         }
-        public RichTextBox RTB => richTextBox1;
         public HashSet<Alias> RegisteredAliases { get; } = new();
         public IReadOnlyList<Command> RegisteredCommands { get => _commands.Values.Distinct().ToList(); }
         public Account? SelectedAccount { get; set; } = null;
@@ -306,6 +305,19 @@ namespace CLI_Sample
                 toolTip1.SetToolTip(ctrl, $"Width:{ctrl.Width}{Environment.NewLine}Height:{ctrl.Height}");
             }
         }
+
+        private void richTextBox1_SizeChanged(object sender, EventArgs e)
+        {
+            ScrollToBottom();
+        }
+        private void chkPageOutput_CheckedChanged(object sender, EventArgs e)
+        {
+            TableHelper.PageOutput = chkPageOutput.Checked;
+        }
+        private void chkDelayOperations_CheckedChanged(object sender, EventArgs e)
+        {
+            SampleData.DelayOperations = chkDelayOperations.Checked;
+        }
         #endregion
 
         #region commands
@@ -421,6 +433,22 @@ namespace CLI_Sample
                 AppendText(SelectedAccount.Name.ToString(), Color.Purple, false);
                 AppendText("[:]", Color.Green);
             }
+        }
+
+        public int GetCharIndexFromPosition(Point point)
+        {
+            return richTextBox1.GetCharIndexFromPosition(point);
+        }
+
+        public int GetLineFromCharIndex(int lastVisibleCharIndex)
+        {
+            return richTextBox1.GetLineFromCharIndex(lastVisibleCharIndex);
+        }
+
+        public void ScrollToBottom()
+        {
+            richTextBox1.SelectionStart = richTextBox1.TextLength;
+            richTextBox1.ScrollToCaret();
         }
         public void ResetCLRText()
         {
@@ -685,37 +713,6 @@ namespace CLI_Sample
             txtSelection.Text = txtSelectionText;
 
             txtAliases.Text = TableHelper.CreateTableOutput(RegisteredAliases.ToList());// GetAliasesString().Trim();
-        }
-
-        private void chkPageOutput_CheckedChanged(object sender, EventArgs e)
-        {
-            TableHelper.PageOutput = chkPageOutput.Checked;
-        }
-
-        public int GetCharIndexFromPosition(Point point)
-        {
-            return richTextBox1.GetCharIndexFromPosition(point);
-        }
-
-        public int GetLineFromCharIndex(int lastVisibleCharIndex)
-        {
-            return richTextBox1.GetLineFromCharIndex(lastVisibleCharIndex);
-        }
-
-        private void chkDelayOperations_CheckedChanged(object sender, EventArgs e)
-        {
-            SampleData.DelayOperations = chkDelayOperations.Checked;
-        }
-
-        public void ScrollToBottom()
-        {
-            richTextBox1.SelectionStart = richTextBox1.TextLength;
-            richTextBox1.ScrollToCaret();
-        }
-
-        private void richTextBox1_SizeChanged(object sender, EventArgs e)
-        {
-            ScrollToBottom();
         }
     }
 
