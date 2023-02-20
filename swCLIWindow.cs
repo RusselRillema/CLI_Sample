@@ -293,11 +293,11 @@ namespace CLI_Sample
                 e.Handled = true;
                 var pageSingleOutput = false;
                 var lastLineString = richTextBox1.Lines.Last().ToLower();
-                if (lastLineString.EndsWith (" |more"))
+                if (lastLineString.EndsWith("|more"))
                 {
                     pageSingleOutput = true;
                     TableHelper.PageOutput = true;
-                    lastLineString = lastLineString.Trim();
+                    lastLineString = lastLineString.Remove(lastLineString.Length - 5).Trim();
                 }
                 await RunCommand(lastLineString);
                 if (pageSingleOutput)
