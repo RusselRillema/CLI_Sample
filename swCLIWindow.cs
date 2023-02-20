@@ -291,7 +291,17 @@ namespace CLI_Sample
             {
                 e.SuppressKeyPress = true;
                 e.Handled = true;
-                await RunCommand(richTextBox1.Lines.Last().ToLower());
+                var pageSingleOutput = false;
+                var lastLineString = richTextBox1.Lines.Last().ToLower();
+                if (lastLineString.EndsWith (" |more"))
+                {
+                    pageSingleOutput = true;
+                    TableHelper.PageOutput = true;
+                    lastLineString = lastLineString.Trim();
+                }
+                await RunCommand(lastLineString);
+                if (pageSingleOutput)
+                    TableHelper.PageOutput = false;
             }
 
             _previousCommandIndex = -1;
