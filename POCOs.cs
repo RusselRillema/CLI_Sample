@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -7,6 +8,16 @@ using System.Xml.Linq;
 
 namespace CLI_Sample
 {
+    public class DuplicateResultException : Exception
+    {
+        public DuplicateResultException(string message, IEnumerable duplicates) : base(message)
+        {
+            Duplicates = duplicates;
+        }
+    
+        public IEnumerable Duplicates { get; }
+    }
+
     public enum Exchange
     {
         Binance,
@@ -34,6 +45,9 @@ namespace CLI_Sample
         public string Symbol { get; set; }
         [CliTablePropertyFormat(Header = "Inst. Kind")]
         public InstrumentKind InstrumentKind { get; set; }
+
+        public string SW_Symbole => $"{Symbol}_{InstrumentKind}";
+
         public override string ToString()
         {
             return Symbol;
@@ -122,7 +136,7 @@ namespace CLI_Sample
             {
                 var matchesByGuids = _accounts.Where(x => x.Id == id);
                 if (matchesByGuids.Count() > 1)
-                    throw new Exception($"More than 1 account with matching Id of {id}");
+                    throw new DuplicateResultException($"More than 1 account with matching Id of {id}", matchesByGuids);
                 else if (matchesByGuids.Count() == 1)
                     return matchesByGuids.Single();
             }
@@ -131,7 +145,7 @@ namespace CLI_Sample
             if (matchesByName.Count() == 0)
                 throw new Exception($"No accounts match on Id or Name to {idOrName}");
             else if (matchesByName.Count() > 1)
-                throw new Exception($"More than 1 account with matching Name of {idOrName}");
+                throw new DuplicateResultException($"More than 1 account with Name {idOrName}. Use ID instead", matchesByName);
 
             return matchesByName.Single();
         }
@@ -176,7 +190,7 @@ namespace CLI_Sample
             if (matches.Count() == 0)
                 throw new Exception($"No instrument on exchange {account.Exchange} with symbol {symbol}");
             else if (matches.Count() > 1)
-                throw new Exception($"More than 1 instrument on exchange {account.Exchange} with symbol {symbol}");
+                throw new DuplicateResultException($"More than 1 instrument on exchange {account.Exchange} with symbol {symbol}. Use SW symbol instead", matches);
 
             return matches.Single();
 
@@ -251,11 +265,13 @@ namespace CLI_Sample
         private static List<Instrument> _instruments = new()
         {
             new() {Symbol="BTCUSD", Name = "BCTUSD Perp", Exchange = Exchange.Binance},
+            new() {Symbol="BTCUSD", Name = "BCTUSD Future", Exchange = Exchange.Binance},
             new() {Symbol="ETHUSD", Name = "ETHUSD Perp", Exchange = Exchange.Binance},
             new() {Symbol="ETHUSDC", Name = "ETHUSDC Perp", Exchange = Exchange.Binance},
             new() {Symbol="BTCUSD", Name = "BCTUSD Perp", Exchange = Exchange.BitMEX},
             new() {Symbol="BTCUSDT", Name = "BCTUSDT Perp", Exchange = Exchange.BitMEX},
             new() {Symbol="ETHUSDT", Name = "ETHUSDT Perp", Exchange = Exchange.BitMEX},
+            new() {Symbol="ETHUSDT", Name = "ETHUSDT Future", Exchange = Exchange.BitMEX},
         };
 
         public static List<Instrument> Instruments
@@ -266,7 +282,30 @@ namespace CLI_Sample
             }
         }
 
-        public static List<Order> Orders { get; } = new();
+        private static List<Order> _orders { get; } = new();
+
+        public static IReadOnlyList<Order> Orders { get => _orders; }
+
+        public static async Task AddOrder(Order order)
+        {
+            _orders.Add(order);
+            await Task.Run(() => { Thread.Sleep(3000); });
+        }
+
+        public static async Task<int> CancelOrders(IEnumerable<Order> orders)
+        {
+            int affectedOrders = 0;
+            foreach (var item in orders)
+            {
+                if (item.IsOpen)
+                {
+                    item.State = OrderState.Canceled;
+                    ++affectedOrders;
+                }
+            }
+            await Task.Run(() => { Thread.Sleep(3000); });
+            return affectedOrders;
+        }
 
         public static InstrumentInfo GetInfo(Instrument instrument)
         {

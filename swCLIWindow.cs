@@ -1,6 +1,9 @@
-﻿using System.Data;
+﻿using System.Collections;
+using System.Data;
+using System.Data.Common;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
 
 namespace CLI_Sample
 {
@@ -11,6 +14,7 @@ namespace CLI_Sample
         public IReadOnlyList<Command> RegisteredCommands { get => _commands.Values.Distinct().ToList(); }
         public Account? SelectedAccount { get; set; } = null;
         public Instrument? SelectedInstrument { get; set; } = null;
+        private bool _isLongRunningTaskBusy { get; set; } = false;
         public bool CommandWaitingForUserInput { get; set; } = false;
         public bool CancelTaskTriggered { get; set; } = false;
 
@@ -52,6 +56,11 @@ namespace CLI_Sample
             InitializeCommands();
             richTextBox1.Text = _commandPrompt;
             richTextBox1.SelectionStart = richTextBox1.Text.Length;
+
+#if (DEBUG)
+            RegisteredAliases.Add(new Alias() { Key = "b", Value = "buy bin1 btcusd 100 @best-1" });
+#endif
+
             UpdateTextBoxes();
 
             txtHelp.Text = GetHelpString(false);
@@ -114,12 +123,24 @@ namespace CLI_Sample
 
         private async void richTextBox1_KeyDown(object sender, KeyEventArgs e)
         {
+            if (_isLongRunningTaskBusy)
+            {
+                e.SuppressKeyPress = true;
+                e.Handled = true;
+                return;
+            }
             if (CommandWaitingForUserInput)
             {
                 e.SuppressKeyPress = true;
                 e.Handled = true;
                 if (e.KeyValue == 32) //space
                     CommandWaitingForUserInput = false;
+
+                if (e.KeyValue == 27) //esc
+                {
+                    CommandWaitingForUserInput = false;
+                    CancelTaskTriggered = true;
+                }
 
                 if (ModifierKeys == Keys.Control && e.KeyValue == 67) //ctrl + c (cancel)
                 {
@@ -154,12 +175,11 @@ namespace CLI_Sample
                 e.Handled = true;
                 return;
             }
-            else if (e.KeyValue == 9)
+            else if (e.KeyValue == 9) //tab
             {
                 e.SuppressKeyPress = true;
                 e.Handled = true;
                 AutoComplete(richTextBox1.Lines.Last());
-                return;
             }
             else if (e.KeyValue == 8) //backspace
             {
@@ -178,9 +198,13 @@ namespace CLI_Sample
             }
             else if (ModifierKeys == Keys.Control && (e.KeyValue == 67 || e.KeyValue == 88)) // 67 = c (copy) 87 = x (cut)
             {
-                Clipboard.SetText(richTextBox1.SelectedText);
-                if (e.KeyValue == 88 && IsLastLine())
-                    richTextBox1.SelectedText = "";
+                if (richTextBox1.SelectedText.Length > 0)
+                {
+                    Clipboard.SetText(richTextBox1.SelectedText);
+                    if (e.KeyValue == 88 && IsLastLine())
+                        richTextBox1.SelectedText = "";
+                }
+                e.SuppressKeyPress = true;
                 e.Handled = true;
                 return;
             }
@@ -221,7 +245,7 @@ namespace CLI_Sample
             {
                 e.SuppressKeyPress = true;
                 e.Handled = true;
-                await RunCommand(richTextBox1.Lines.Last());
+                await RunCommand(richTextBox1.Lines.Last().ToLower());
             }
 
             _previousCommandIndex = -1;
@@ -280,6 +304,11 @@ namespace CLI_Sample
                 if (!runByUseStatement)
                     _lastRunCommand = commandToRun;
                 await commandToRun.RunCommand(itemsInCmd);
+            }
+            catch (DuplicateResultException dex)
+            {
+                AppendText($"Error: {dex.Message}", new Font(this.Font, FontStyle.Bold), Color.Red);
+                TableHelper.PrintTableOutput(this, dex.Duplicates);
             }
             catch (Exception ex)
             {
@@ -343,6 +372,11 @@ namespace CLI_Sample
         }
         public void ClearLastLine()
         {
+            if (InvokeRequired)
+            {
+                Invoke(ClearLastLine);
+                return;
+            }
             var i = richTextBox1.Text.LastIndexOf($"\n");
             if (i == -1)
                 return;
@@ -351,7 +385,19 @@ namespace CLI_Sample
             richTextBox1.SelectedText = "";
             richTextBox1.AppendText(Environment.NewLine);
         }
-
+        public void SelectLastLine()
+        {
+            if (InvokeRequired)
+            {
+                Invoke(SelectLastLine);
+                return;
+            }
+            var i = richTextBox1.Text.LastIndexOf($"\n");
+            if (i == -1)
+                return;
+            richTextBox1.SelectionStart = i;
+            richTextBox1.SelectionLength = richTextBox1.TextLength - i;
+        }
         private bool IsLastLine(int cursorPosition = -1)
         {
             if (cursorPosition == -1)
@@ -379,6 +425,12 @@ namespace CLI_Sample
 
         public void AppendText(string text, Font? font, Color? textColor, bool autoReturn = true)
         {
+            if (InvokeRequired)
+            {
+                Invoke(() => { AppendText(text, font, textColor, autoReturn); });
+                return;
+            }
+
             var currentFont = richTextBox1.SelectionFont;
             var currentTextCol = richTextBox1.SelectionColor;
             if (font != null)
@@ -392,6 +444,58 @@ namespace CLI_Sample
             richTextBox1.SelectionColor = currentTextCol;
         }
         #endregion
+
+        public void StartLongRunningTask(string outputMessage, bool showLoadingSpinner)
+        {
+            _isLongRunningTaskBusy = true;
+            Task.Run(() =>
+            {
+                AppendText($"{outputMessage} / ", false);
+
+                int pos = 0;
+                Action a = new Action(() =>
+                {
+                    ++pos;
+                    SelectLastLine();
+                    switch (pos)
+                    {
+                        case 1:
+                            richTextBox1.SelectedText = @$"{Environment.NewLine}{outputMessage} /";
+                            break;
+                        case 2:
+                            richTextBox1.SelectedText = @$"{Environment.NewLine}{outputMessage} -";
+                            break;
+                        case 3:
+                            richTextBox1.SelectedText = @$"{Environment.NewLine}{outputMessage} \";
+                            break;
+                        case 4:
+                            richTextBox1.SelectedText = @$"{Environment.NewLine}{outputMessage} |";
+                            pos = 0;
+                            break;
+                        default:
+                            break;
+                    }
+                });
+
+
+                do
+                {
+                    if (InvokeRequired)
+                        Invoke(a);
+                    else
+                        a();
+                    
+                    Thread.Sleep(250);
+                } while (_isLongRunningTaskBusy);
+            });
+
+
+        }
+
+        public void StopLongRunningTask()
+        {
+            _isLongRunningTaskBusy = false;
+        }
 
         public void AutoComplete(string cmd)
         {
@@ -447,10 +551,10 @@ namespace CLI_Sample
             }
             catch (Exception ex)
             {
-                AppendText($"Error: {ex.Message}", new Font(this.Font, FontStyle.Bold), Color.Red);
+                /*AppendText($"Error: {ex.Message}", new Font(this.Font, FontStyle.Bold), Color.Red);
                 AppendComandPromptHeader();
                 richTextBox1.AppendText($"{_commandPrompt}");
-                UpdateTextBoxes();
+                UpdateTextBoxes();*/
             }
         }
 
@@ -554,11 +658,7 @@ namespace CLI_Sample
                 foreach (var column in columns)
                 {
                     string cellValue = GetCellValue(item, column);
-                    if (cellValue.Length > column.ColumnWidth)
-                    {
-                        cellValue = cellValue.Remove(column.ColumnWidth - 3) + "...";
-                    }
-                    table += string.Format("{0," + ((column.ColumnWidth + ColumnSpacer) * -1).ToString() + "}", cellValue);
+                    table += cellValue;
                 }
                 table += Environment.NewLine;
                 ++rowId;
@@ -567,7 +667,7 @@ namespace CLI_Sample
             return table;
         }
 
-        public static async Task PrintTableOutput<T>(IOutputWindow outputWindow, IEnumerable<T> collection, bool addRowId = false)
+        public static async Task PrintTableOutput<T>(IOutputWindow outputWindow, ICollection<T> collection, bool addRowId = false)
         {
             ClearPreviousTablePrint<T>(addRowId);
             List<TableColumnHelper> columns = GetColumns(collection);
@@ -586,10 +686,6 @@ namespace CLI_Sample
                 foreach (var column in columns)
                 {
                     string cellValue = GetCellValue(item, column);
-                    if (cellValue.Length > column.ColumnWidth)
-                    {
-                        cellValue = cellValue.Remove(column.ColumnWidth - 3) + "...";
-                    }
                     tableContent += string.Format("{0," + ((column.ColumnWidth + ColumnSpacer) * -1).ToString() + "}", cellValue);
                 }
                 tableContent += Environment.NewLine;
@@ -660,17 +756,36 @@ namespace CLI_Sample
         private static string GetCellValue<T>(T? item, TableColumnHelper column)
         {
             string value = column.PropertyInfo.GetValue(item)?.ToString() ?? "";
+            bool padLeft = true;
+            if (column.DecimalWidth > 0 && (column.PropertyInfo.PropertyType == typeof(decimal) || column.PropertyInfo.PropertyType == typeof(double) || column.PropertyInfo.PropertyType == typeof(float)))
+            {
+                var sections = value.Split('.');
+                if (sections.Length == 2)
+                    value = sections[0] + "." + sections[1].Trim().TrimEnd('0').PadRight(column.DecimalWidth);
+                else
+                    value = value + "".PadRight(column.DecimalWidth + 1); //Add 1 for the decimal place
+                padLeft = false;
+            }
+
             string frontValue = "";
             string endValue = "";
+            
             if (column.Format.LeadingCharacters != -1)
                 frontValue = value.Remove(column.Format.TrailingCharacters);
             if (column.Format.TrailingCharacters != -1)
                 endValue = value.Remove(0, value.Length - column.Format.TrailingCharacters);
 
             if (frontValue != "" || endValue != "")
-                return $"{frontValue}...{endValue}";
+                value = $"{frontValue}...{endValue}";
+
+            if (value.Length > column.ColumnWidth)
+                value = value.Remove(column.ColumnWidth - 3) + "...";
+
+            if (padLeft)
+                value = string.Format("{0," + ((column.ColumnWidth + ColumnSpacer) * -1).ToString() + "}", value);
             else
-                return value;
+                value = string.Format("{0," + column.ColumnWidth.ToString() + "}", value);
+            return value;
         }
 
         private static List<TableColumnHelper> GetColumns<T>(IEnumerable<T> collection)
@@ -683,7 +798,35 @@ namespace CLI_Sample
                     continue;
 
                 int colWidth = 0;
-                if (collection.Count() > 0)
+
+                int maxWholeNumberLength = 0;
+                int maxDecimalLength = 0;
+
+                if (prop.PropertyInfo.PropertyType == typeof(decimal) || prop.PropertyInfo.PropertyType == typeof(double) || prop.PropertyInfo.PropertyType == typeof(float))
+                {
+                    foreach (var item in collection)
+                    {
+                        int wLen = 0;
+                        int dLen = 0;
+
+                        string strValue = prop.PropertyInfo.GetValue(item)?.ToString() ?? "";
+                        if (string.IsNullOrWhiteSpace(strValue))
+                            continue;
+
+                        var pieces = strValue.Split('.');
+                        wLen = pieces[0].Length;
+                        if (pieces.Length > 1)
+                            dLen = pieces[1].Trim().TrimEnd('0').Length;
+
+
+                        if (wLen > maxWholeNumberLength)
+                            maxWholeNumberLength = wLen;
+                        if (dLen > maxDecimalLength)
+                            maxDecimalLength = dLen;
+                    }
+                    colWidth = maxWholeNumberLength + maxDecimalLength + 1; //add 1 for the decimal point
+                }
+                else if (collection.Count() > 0)
                     colWidth = collection.Max(x => prop.PropertyInfo.GetValue(x)?.ToString()?.Length ?? 0);
 
                 string header = prop.CliTableFormat.Header ?? prop.PropertyInfo.Name;
@@ -692,12 +835,16 @@ namespace CLI_Sample
                     colWidth = header.Length;
 
                 if (prop.CliTableFormat.MaxWidth != -1 && colWidth > prop.CliTableFormat.MaxWidth)
+                {
                     colWidth = prop.CliTableFormat.MaxWidth;
+                    maxDecimalLength = colWidth - maxWholeNumberLength;
+                }
 
                 TableColumnHelper col = new()
                 {
                     ColumnHeader = header,
                     ColumnWidth = colWidth,
+                    DecimalWidth = maxDecimalLength,
                     PropertyInfo = prop.PropertyInfo,
                     Format = prop.CliTableFormat,
                 };
@@ -734,6 +881,8 @@ namespace CLI_Sample
         {
             public string ColumnHeader { get; set; }
             public int ColumnWidth { get; init; }
+            //Only used for decimal/double/float
+            public int DecimalWidth { get; init; }
             public PropertyInfo PropertyInfo { get; set; }
             public CliTablePropertyFormat Format { get; set; }
         }
@@ -792,13 +941,16 @@ namespace CLI_Sample
         HashSet<Alias> RegisteredAliases { get; }
         bool CommandWaitingForUserInput { get; set; }
         bool CancelTaskTriggered { get; set; }
-
+        
         void AppendText(string text, bool autoReturn = true);
         void AppendText(string text, Color? textColor, bool autoReturn = true);
         void AppendText(string text, Font? font, bool autoReturn = true);
         void AppendText(string text, Font? font, Color? textColor, bool autoReturn = true);
         void ResetCLRText();
         void ClearLastLine();
+
+        void StartLongRunningTask(string outputMessage, bool showLoadingSpinner);
+        void StopLongRunningTask();
     }
 
     public enum CommandName
@@ -1312,9 +1464,10 @@ namespace CLI_Sample
                 var val = int.Parse(price.ToString().Replace("55.12345", ""));
                 outputPrice = "best" + (val - 5).ToString();
             }
-            _outputWindow.AppendText($"{CMDName} {qty} {instrument.Symbol} on account {account.Name} at {outputPrice}");
 
-            SampleData.Orders.Add(new()
+            _outputWindow.StartLongRunningTask("Placing order", true);
+
+            await SampleData.AddOrder(new()
             {
                 Account = account,
                 Instrument = instrument,
@@ -1323,6 +1476,11 @@ namespace CLI_Sample
                 Side = CMDName == CommandName.sell ? Side.Sell : Side.Buy,
                 State = price == 999 ? OrderState.Filled : OrderState.Open,
             });
+
+            _outputWindow.StopLongRunningTask();
+            _outputWindow.ClearLastLine();
+
+            _outputWindow.AppendText($"{CMDName} {qty} {instrument.Symbol} on account {account.Name} at {outputPrice}");
         }
 
         private static decimal ExtractPrice(string priceVal)
@@ -1440,20 +1598,13 @@ namespace CLI_Sample
 
             if (cmd[1] == "all")
             {
-                int affectedOrders = 0;
-                foreach (var item in SampleData.Orders)
-                {
-                    if (item.IsOpen)
-                    {
-                        item.State = OrderState.Canceled;
-                        ++affectedOrders;
-                    }
-                }
+                int affectedOrders = await SampleData.CancelOrders(SampleData.Orders);
+
                 if (affectedOrders > 0)
                     _outputWindow.AppendText($"{affectedOrders} orders cancelled");
                 else
                     _outputWindow.AppendText($"There are no open orders to cancel");
-                SampleData.Orders.ForEach(x => x.State = OrderState.Canceled);
+
                 return;
             }
             else if (TableHelper.OutputsByType.ContainsKey(typeof(Order))
@@ -1475,7 +1626,7 @@ namespace CLI_Sample
 
             if (orders.Single().IsOpen)
             {
-                orders.Single().State = OrderState.Canceled;
+                await SampleData.CancelOrders(orders);
                 _outputWindow.AppendText($"Order cancelled");
             }
             else
@@ -1590,6 +1741,12 @@ namespace CLI_Sample
         protected override Func<string[], Task> CommandAction => Info;
         private async Task Info(string[] cmd)
         {
+            if (cmd.Length > 2) //if the user has entered something like info BTCUSD | ETHUSD we want to change it to BTCUSD|ETHUSD
+            {
+                cmd[1] = string.Join("", cmd.Skip(1));
+                cmd = cmd.Take(2).ToArray();
+            }
+
             if (cmd.Length == 1)
             {
                 if (_outputWindow.SelectedInstrument == null)
