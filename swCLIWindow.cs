@@ -58,7 +58,10 @@ namespace CLI_Sample
             richTextBox1.SelectionStart = richTextBox1.Text.Length;
 
 #if (DEBUG)
-            RegisteredAliases.Add(new Alias() { Key = "b", Value = "buy bin1 btcusd 100 @best-1" });
+            RegisteredAliases.Add(new Alias() { Key = "bd", Value = "buy bin1 btcusd 100 @best-1" });
+            RegisteredAliases.Add(new Alias() { Key = "b1", Value = "buy bin1 btcusd_perp 100 @best-1" });
+            RegisteredAliases.Add(new Alias() { Key = "b2", Value = "buy bin1 btcusd_perp 50.5 @99.54" });
+            RegisteredAliases.Add(new Alias() { Key = "b3", Value = "buy bin1 ethusd 999.005 @0.0950" });
 #endif
 
             UpdateTextBoxes();
@@ -612,7 +615,7 @@ namespace CLI_Sample
             txtSelectionText += $"{"Instrument:",-12}{SelectedInstrument?.Symbol ?? "none",-30}";
             txtSelection.Text = txtSelectionText;
 
-            txtAliases.Text = TableHelper.CreateTableOutput(RegisteredAliases);// GetAliasesString().Trim();
+            txtAliases.Text = TableHelper.CreateTableOutput(RegisteredAliases.ToList());// GetAliasesString().Trim();
         }
 
         private void nudPageSize_ValueChanged(object sender, EventArgs e)
@@ -639,9 +642,10 @@ namespace CLI_Sample
 
         private const int ColumnSpacer = 2;
         private static Dictionary<Type, List<PropertyInfoCliAttributeMapper>> _knownTypes = new();
-        public static string CreateTableOutput<T>(IEnumerable<T> collection, bool addRowId = false)
+        public static string CreateTableOutput<T>(List<T> collection, bool addRowId = false)
         {
-            ClearPreviousTablePrint<T>(addRowId);
+            Type type = collection.GetType().GetGenericArguments()[0];
+            ClearPreviousTablePrint(type);
             List<TableColumnHelper> columns = GetColumns(collection);
             string table = CreateTableHeadersText(addRowId, columns);
 
@@ -667,9 +671,10 @@ namespace CLI_Sample
             return table;
         }
 
-        public static async Task PrintTableOutput<T>(IOutputWindow outputWindow, ICollection<T> collection, bool addRowId = false)
+        public static async Task PrintTableOutput(IOutputWindow outputWindow, ICollection collection, bool addRowId = false)
         {
-            ClearPreviousTablePrint<T>(addRowId);
+            Type type = collection.GetType().GetGenericArguments()[0];
+            ClearPreviousTablePrint(type);
             List<TableColumnHelper> columns = GetColumns(collection);
             outputWindow.AppendText(CreateTableHeadersText(addRowId, columns), false);
             //Data
@@ -679,7 +684,7 @@ namespace CLI_Sample
             {
                 if (addRowId)
                 {
-                    OutputsByType[typeof(T)].Add(rowId, item);
+                    OutputsByType[type].Add(rowId, item);
                     tableContent += string.Format("{0," + (7 * -1).ToString() + "}", rowId.ToString());
                 }
 
@@ -717,15 +722,12 @@ namespace CLI_Sample
             outputWindow.AppendText(tableContent);
         }
 
-        private static void ClearPreviousTablePrint<T>(bool addRowId)
+        private static void ClearPreviousTablePrint(Type type)
         {
-            if (addRowId)
-            {
-                if (!OutputsByType.ContainsKey(typeof(T)))
-                    OutputsByType[typeof(T)] = new Dictionary<int, object>();
+            if (!OutputsByType.ContainsKey(type))
+                OutputsByType[type] = new Dictionary<int, object>();
 
-                OutputsByType[typeof(T)].Clear();
-            }
+            OutputsByType[type].Clear();
         }
 
         private static string CreateTableHeadersText(bool addRowId, List<TableColumnHelper> columns)
@@ -788,9 +790,10 @@ namespace CLI_Sample
             return value;
         }
 
-        private static List<TableColumnHelper> GetColumns<T>(IEnumerable<T> collection)
+        private static List<TableColumnHelper> GetColumns(ICollection collection)
         {
-            var props = AddToKnownTypes<T>();
+            Type type = collection.GetType().GetGenericArguments()[0];
+            var props = AddToKnownTypes(type);
             List<TableColumnHelper> columns = new();
             foreach (var prop in props)
             {
@@ -826,8 +829,15 @@ namespace CLI_Sample
                     }
                     colWidth = maxWholeNumberLength + maxDecimalLength + 1; //add 1 for the decimal point
                 }
-                else if (collection.Count() > 0)
-                    colWidth = collection.Max(x => prop.PropertyInfo.GetValue(x)?.ToString()?.Length ?? 0);
+                else if (collection.Count > 0)
+                {
+                    foreach (var item in collection)
+                    {
+                        int width = prop.PropertyInfo.GetValue(item)?.ToString()?.Length ?? 0;
+                        if (colWidth < width)
+                            colWidth = width;
+                    }
+                }
 
                 string header = prop.CliTableFormat.Header ?? prop.PropertyInfo.Name;
 
@@ -854,9 +864,8 @@ namespace CLI_Sample
             return columns;
         }
 
-        private static List<PropertyInfoCliAttributeMapper> AddToKnownTypes<T>()
+        private static List<PropertyInfoCliAttributeMapper> AddToKnownTypes(Type colType)
         {
-            Type colType = typeof(T);
             if (!_knownTypes.ContainsKey(colType))
                 _knownTypes[colType] = GetProperties(colType);
 
@@ -1072,7 +1081,7 @@ namespace CLI_Sample
                 _outputWindow.AppendText(output);// outputWindow.GetHelpString(true));
             }
             else
-                await TableHelper.PrintTableOutput(_outputWindow, _outputWindow.RegisteredCommands);
+                await TableHelper.PrintTableOutput(_outputWindow, _outputWindow.RegisteredCommands.ToList());
                 //_outputWindow.AppendText(_outputWindow.GetHelpString(true));
         }
     }
@@ -1191,7 +1200,7 @@ namespace CLI_Sample
                     && TableHelper.OutputsByType[typeof(Instrument)][rowId] is Instrument ins
                     && accToSelect?.Exchange == ins.Exchange)
                 {
-                    _outputWindow.SelectedInstrument = SampleData.FindInstrument(accToSelect, ins.Symbol);
+                    _outputWindow.SelectedInstrument = SampleData.FindInstrument(accToSelect, ins.SW_Symbol);
                     return;
                 }
             }
@@ -1650,7 +1659,7 @@ namespace CLI_Sample
 
         private async Task GetAliasesString(string[] cmd)
         {
-            await TableHelper.PrintTableOutput(_outputWindow, _outputWindow.RegisteredAliases);
+            await TableHelper.PrintTableOutput(_outputWindow, _outputWindow.RegisteredAliases.ToList());
         }
     }
 

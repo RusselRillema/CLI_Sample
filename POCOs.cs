@@ -10,12 +10,12 @@ namespace CLI_Sample
 {
     public class DuplicateResultException : Exception
     {
-        public DuplicateResultException(string message, IEnumerable duplicates) : base(message)
+        public DuplicateResultException(string message, ICollection duplicates) : base(message)
         {
             Duplicates = duplicates;
         }
     
-        public IEnumerable Duplicates { get; }
+        public ICollection Duplicates { get; }
     }
 
     public enum Exchange
@@ -30,7 +30,7 @@ namespace CLI_Sample
         [CliTablePropertyFormat(Header = "ID", LeadingCharacters = 3, TrailingCharacters = 3, MaxWidth = 9)]
         public Guid Id { get; set; } = Guid.NewGuid();
         [CliTablePropertyFormat(Header = "Acc. Name")]
-        public string Name { get; set; }
+        public string Name { get; set; } = string.Empty;
         public Exchange Exchange { get; set; }
         public override string ToString()
         {
@@ -41,12 +41,12 @@ namespace CLI_Sample
     {
         public Exchange Exchange { get; set; }
         [CliTablePropertyFormat(Header = "Inst. Name")]
-        public string Name { get; set; }
+        public string Name { get; set; } = string.Empty;
         public string Symbol { get; set; }
         [CliTablePropertyFormat(Header = "Inst. Kind")]
         public InstrumentKind InstrumentKind { get; set; }
 
-        public string SW_Symbole => $"{Symbol}_{InstrumentKind}";
+        public string SW_Symbol => $"{Symbol}_{InstrumentKind}";
 
         public override string ToString()
         {
@@ -118,13 +118,13 @@ namespace CLI_Sample
                     if (Guid.TryParse(idOrName, out Guid id))
                         return _accounts.Where(x => x.Id == id).ToList();
                     else
-                        return _accounts.Where(x => x.Name == idOrName).ToList();
+                        return _accounts.Where(x => x.Name.ToLower() == idOrName).ToList();
                 case FilterType.Contains:
-                    return _accounts.Where(x => x.Name.Contains(idOrName)).Concat(_accounts.Where(x => x.Id.ToString().Contains(idOrName))).ToList();
+                    return _accounts.Where(x => x.Name.ToLower().Contains(idOrName)).Concat(_accounts.Where(x => x.Id.ToString().Contains(idOrName))).ToList();
                 case FilterType.StartsWith:
-                    return _accounts.Where(x => x.Name.StartsWith(idOrName)).Concat(_accounts.Where(x => x.Id.ToString().StartsWith(idOrName))).ToList();
+                    return _accounts.Where(x => x.Name.ToLower().StartsWith(idOrName)).Concat(_accounts.Where(x => x.Id.ToString().StartsWith(idOrName))).ToList();
                 case FilterType.EndsWith:
-                    return _accounts.Where(x => x.Name.EndsWith(idOrName)).Concat(_accounts.Where(x => x.Id.ToString().EndsWith(idOrName))).ToList();
+                    return _accounts.Where(x => x.Name.ToLower().EndsWith(idOrName)).Concat(_accounts.Where(x => x.Id.ToString().EndsWith(idOrName))).ToList();
                 default:
                     throw new Exception($"Unknown filter type {filterType}");
             }
@@ -134,14 +134,14 @@ namespace CLI_Sample
         {
             if (Guid.TryParse(idOrName, out Guid id))
             {
-                var matchesByGuids = _accounts.Where(x => x.Id == id);
+                var matchesByGuids = _accounts.Where(x => x.Id == id).ToList();
                 if (matchesByGuids.Count() > 1)
                     throw new DuplicateResultException($"More than 1 account with matching Id of {id}", matchesByGuids);
                 else if (matchesByGuids.Count() == 1)
                     return matchesByGuids.Single();
             }
 
-            var matchesByName = _accounts.Where(x => x.Name.ToLower() == idOrName.ToLower());
+            var matchesByName = FindAccounts(FilterType.Equals, idOrName);// _accounts.Where(x => x.Name.ToLower() == idOrName.ToLower()).ToList();
             if (matchesByName.Count() == 0)
                 throw new Exception($"No accounts match on Id or Name to {idOrName}");
             else if (matchesByName.Count() > 1)
@@ -166,6 +166,36 @@ namespace CLI_Sample
 
         public static List<Instrument> FindInstruments(FilterType filterType, Account account, string symbol) 
         {
+            var res = FindInstrumentsBySW_Symbol(filterType, account, symbol);
+
+            if (res.Count == 0)
+                res = FindInstrumentsBySymbol(filterType, account, symbol);
+
+            return res;
+        }
+
+        private static List<Instrument> FindInstrumentsBySW_Symbol(FilterType filterType, Account account, string symbol)
+        {
+            switch (filterType)
+            {
+                case FilterType.None:
+                    return _instruments.Where(x => x.Exchange == account.Exchange).ToList();
+                case FilterType.Equals:
+                    return _instruments.Where(x => x.Exchange == account.Exchange && x.SW_Symbol.ToLower() == symbol.ToLower()).ToList();
+                case FilterType.Contains:
+                    return _instruments.Where(x => x.Exchange == account.Exchange && x.SW_Symbol.ToLower().Contains(symbol.ToLower())).ToList();
+                    throw new Exception($"Unknown filter type {filterType}");
+                case FilterType.StartsWith:
+                    return _instruments.Where(x => x.Exchange == account.Exchange && x.SW_Symbol.ToLower().StartsWith(symbol.ToLower())).ToList();
+                case FilterType.EndsWith:
+                    return _instruments.Where(x => x.Exchange == account.Exchange && x.SW_Symbol.ToLower().EndsWith(symbol.ToLower())).ToList();
+                default:
+                    throw new Exception($"Unknown filter type {filterType}");
+            }
+        }
+
+        private static List<Instrument> FindInstrumentsBySymbol(FilterType filterType, Account account, string symbol)
+        {
             switch (filterType)
             {
                 case FilterType.None:
@@ -186,11 +216,11 @@ namespace CLI_Sample
 
         public static Instrument FindInstrument(Account account, string symbol)
         {
-            var matches = _instruments.Where(x=>x.Exchange == account.Exchange && x.Symbol.ToLower() == symbol.ToLower());
+            var matches = FindInstruments(FilterType.Equals, account, symbol);// _instruments.Where(x=>x.Exchange == account.Exchange && x.Symbol.ToLower() == symbol.ToLower()).ToList();
             if (matches.Count() == 0)
                 throw new Exception($"No instrument on exchange {account.Exchange} with symbol {symbol}");
             else if (matches.Count() > 1)
-                throw new DuplicateResultException($"More than 1 instrument on exchange {account.Exchange} with symbol {symbol}. Use SW symbol instead", matches);
+                throw new DuplicateResultException($"More than 1 instrument on exchange {account.Exchange} with symbol {symbol}. Use SW_Symbol instead", matches);
 
             return matches.Single();
 
@@ -202,6 +232,10 @@ namespace CLI_Sample
             {
                 instrument = FindInstrument(account, symbol);
                 return true;
+            }
+            catch (DuplicateResultException dex)
+            {
+                throw;
             }
             catch (Exception)
             {
@@ -264,14 +298,14 @@ namespace CLI_Sample
 
         private static List<Instrument> _instruments = new()
         {
-            new() {Symbol="BTCUSD", Name = "BCTUSD Perp", Exchange = Exchange.Binance},
-            new() {Symbol="BTCUSD", Name = "BCTUSD Future", Exchange = Exchange.Binance},
-            new() {Symbol="ETHUSD", Name = "ETHUSD Perp", Exchange = Exchange.Binance},
-            new() {Symbol="ETHUSDC", Name = "ETHUSDC Perp", Exchange = Exchange.Binance},
-            new() {Symbol="BTCUSD", Name = "BCTUSD Perp", Exchange = Exchange.BitMEX},
-            new() {Symbol="BTCUSDT", Name = "BCTUSDT Perp", Exchange = Exchange.BitMEX},
-            new() {Symbol="ETHUSDT", Name = "ETHUSDT Perp", Exchange = Exchange.BitMEX},
-            new() {Symbol="ETHUSDT", Name = "ETHUSDT Future", Exchange = Exchange.BitMEX},
+            new() {Symbol="BTCUSD", Name = "BCTUSD Perp", Exchange = Exchange.Binance, InstrumentKind = InstrumentKind.Perp},
+            new() {Symbol="BTCUSD", Name = "BCTUSD Future", Exchange = Exchange.Binance, InstrumentKind = InstrumentKind.Future},
+            new() {Symbol="ETHUSD", Name = "ETHUSD Perp", Exchange = Exchange.Binance, InstrumentKind = InstrumentKind.Perp},
+            new() {Symbol="ETHUSDC", Name = "ETHUSDC Perp", Exchange = Exchange.Binance, InstrumentKind = InstrumentKind.Perp},
+            new() {Symbol="BTCUSD", Name = "BCTUSD Perp", Exchange = Exchange.BitMEX, InstrumentKind = InstrumentKind.Perp},
+            new() {Symbol="BTCUSDT", Name = "BCTUSDT Perp", Exchange = Exchange.BitMEX, InstrumentKind = InstrumentKind.Perp},
+            new() {Symbol="ETHUSDT", Name = "ETHUSDT Perp", Exchange = Exchange.BitMEX, InstrumentKind = InstrumentKind.Perp},
+            new() {Symbol="ETHUSDT", Name = "ETHUSDT Future", Exchange = Exchange.BitMEX, InstrumentKind = InstrumentKind.Future},
         };
 
         public static List<Instrument> Instruments
